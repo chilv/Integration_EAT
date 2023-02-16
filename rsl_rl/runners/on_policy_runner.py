@@ -32,8 +32,6 @@ import time
 import os
 from collections import deque
 import statistics
-import random
-import numpy as np
 
 from torch.utils.tensorboard import SummaryWriter
 import torch
@@ -82,12 +80,21 @@ class OnPolicyRunner:
 
         _, _ = self.env.reset()
     
-    def learn(self, num_learning_iterations, init_at_random_ep_len=False, flawed_joint = [-1], flawed_rate = 1, random_flawed = False):
+    def body_gen(self, flawed_joint, flawed_rate = 0):
+        body = torch.ones(12)
+        if -1 not in flawed_joint:
+            body[flawed_joint] = flawed_rate
+        bodys = body.repeat(self.env.num_envs,1)
+        return bodys
+
+    def learn(self, num_learning_iterations, init_at_random_ep_len=False, flawed_joint = [-1], flawed_rate = 0):
         # initialize writer
         if self.log_dir is not None and self.writer is None:
             self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
         if init_at_random_ep_len:
             self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
+        bodys = self.body_gen(flawed_joint, flawed_rate)
+        bodys = bodys.to(self.device)
         obs = self.env.get_observations()
         privileged_obs = self.env.get_privileged_observations()
         critic_obs = privileged_obs if privileged_obs is not None else obs
@@ -103,8 +110,6 @@ class OnPolicyRunner:
         tot_iter = self.current_learning_iteration + num_learning_iterations
         for it in range(self.current_learning_iteration, tot_iter):
             start = time.time()
-            #设定随机坏损的比率
-            random_index = 100
             # Rollout
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
@@ -113,15 +118,7 @@ class OnPolicyRunner:
                     # actions[:,0] = -2.0#锁死臀关节
                     # actions[:,1] = -2.0#锁死膝关节
                     #------------------------
-                    if(random_flawed and i % random_index == 0):     #设定了随机坏损 且满足坏损计数时 采样坏损关节与坏损率
-                        rand_joint = random.sample(range(12), 1)
-                        # rand_flawed_rate = np.random.normal(0.5, 0.2)
-                        rand_flawed_rate = 0
-                        np.clip(rand_flawed_rate, 0, 1)     #坏损情况设定在0~1之间
-                        obs, privileged_obs, rewards, dones, infos = self.env.step(actions, rand_joint, rand_flawed_rate)
-                    else:
-                        obs, privileged_obs, rewards, dones, infos = self.env.step(actions, flawed_joint, flawed_rate)
-                    
+                    obs, privileged_obs, rewards, dones, infos = self.env.step(actions, bodys)
                     critic_obs = privileged_obs if privileged_obs is not None else obs
                     obs, critic_obs, rewards, dones = obs.to(self.device), critic_obs.to(self.device), rewards.to(self.device), dones.to(self.device)
                     self.alg.process_env_step(rewards, dones, infos)
