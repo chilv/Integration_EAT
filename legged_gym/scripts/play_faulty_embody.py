@@ -78,7 +78,7 @@ def play(args):
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [0.5, 0.7]# 更改速度设置以防命令采样到0的情况    
+    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]# 更改速度设置以防命令采样到0的情况    
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
@@ -122,7 +122,7 @@ def play(args):
     for i in range(env_cfg.env.num_envs):
         if t[i] > 0:
             # bodys[i][t[i]-1] = random.random()
-            bodys[i][10] = 0
+            bodys[i][11] = 0
     bodys = bodys.to(env.device)
 
 
