@@ -9,7 +9,7 @@ from regex import F
 import torch
 import numpy as np
 from torch.utils.data import Dataset
-from d4rl_infos import REF_MIN_SCORE, REF_MAX_SCORE, D4RL_DATASET_STATS
+# from d4rl_infos import REF_MIN_SCORE, REF_MAX_SCORE, D4RL_DATASET_STATS
 import imageio
 from tqdm import tqdm
 
@@ -21,14 +21,14 @@ def discount_cumsum(x, gamma):
     return disc_cumsum
 
 
-def get_d4rl_normalized_score(score, env_name):
-    env_key = env_name.split('-')[0].lower()
-    assert env_key in REF_MAX_SCORE, f'no reference score for {env_key} env to calculate d4rl score'
-    return (score - REF_MIN_SCORE[env_key]) / (REF_MAX_SCORE[env_key] - REF_MIN_SCORE[env_key])
+# def get_d4rl_normalized_score(score, env_name):
+#     env_key = env_name.split('-')[0].lower()
+#     assert env_key in REF_MAX_SCORE, f'no reference score for {env_key} env to calculate d4rl score'
+#     return (score - REF_MIN_SCORE[env_key]) / (REF_MAX_SCORE[env_key] - REF_MIN_SCORE[env_key])
 
 
-def get_d4rl_dataset_stats(env_d4rl_name):
-    return D4RL_DATASET_STATS[env_d4rl_name]
+# def get_d4rl_dataset_stats(env_d4rl_name):
+#     return D4RL_DATASET_STATS[env_d4rl_name]
 
 def evaluate_on_env_ppo(model, device, context_len, env, rtg_target, rtg_scale,
                     num_eval_ep=10, max_test_ep_len=1000,
@@ -793,6 +793,9 @@ def get_dataset_config(dataset):
 
     cut = 0
     eval_env = "none"
+    datafile = ""
+    i_magic_list = []
+    eval_body_vec = []
     
     if dataset == "none":   #测试正常模型机器人能否在EAT上运作
         datafile = "P20F10000-vel0.5-v0"
@@ -831,8 +834,6 @@ def get_dataset_config(dataset):
             for rate in [0, 0.25, 0.5, 0.75]:
                 i_magic_list.append(f"{name}-{rate}")
         eval_body_vec = [1 for _ in range(12)]
-        
-        
         
     if dataset == "top1000":
         datafile = "1000outof10000-vel0.5-v0"

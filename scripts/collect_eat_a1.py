@@ -60,8 +60,6 @@ VEL0_5 = False
 VEL0_4 = False
 SAVE_DIR = os.path.join(parentdir, "data")
 
-
-
 # param_dict = {}
 ## 断腿版本的i_magic命名规则：共12维，1代表正常 小数代表力矩折扣率
 ## 12维依次是左前右前左后右后腿 从上到下的关节顺序
@@ -222,7 +220,6 @@ def play(args, env, train_cfg, fault_type = "none", fault_rate = 1):
 		path_dict["body"] = np.tile(np.array(embodiment), (np.shape(path_dict["observations"])[0], 1))
 
 		paths.append(path_dict)
-
 
 	returns = np.array([np.sum(p['rewards']) for p in paths])
 	num_samples = np.sum([p['rewards'].shape[0] for p in paths])

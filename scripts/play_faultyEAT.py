@@ -17,7 +17,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from collections import deque
 from legged_gym import LEGGED_GYM_ROOT_DIR
-from utils import D4RLTrajectoryDataset, evaluate_on_env, get_d4rl_normalized_score, evaluate_on_env_batch_body, get_dataset_config
+from utils import D4RLTrajectoryDataset, evaluate_on_env, evaluate_on_env_batch_body, get_dataset_config
 from model import DecisionTransformer, LeggedTransformer, LeggedTransformerPro, MLPBCModel
 from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger
 from singlea1 import A1
@@ -47,7 +47,7 @@ def disable_leg(actions, target:str ="joint", index:int = 2):
         
     return actions
 
-def play(args, faulty_tag = -1):
+def play(args, faulty_tag = -1, flawed_rate = 1):
     rtg_scale = 1000      # normalize returns to go
     state_dim = 48
     act_dim = 12
@@ -58,67 +58,10 @@ def play(args, faulty_tag = -1):
     embed_dim = 128          # embedding (hidden) dim of transformer #! 原值128 #512
     n_heads = 1              # num of transformer heads
     dropout_p = 0.1          # dropout probability
-    
-    #======================================================================
-    #prepare datas(for init model)  
-    # datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("top1000")
-    
-    # file_list = [f"{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
-    # dataset_path_list_raw = [os.path.join('EAT-main/data/', d) for d in file_list]
-    # dataset_path_list = []
-    # for p in dataset_path_list_raw:
-    #     if os.path.isfile(p):
-    #         dataset_path_list.append(p)
-    #     else:
-    #         print(p, " doesn't exist~")
-                
-    # device = torch.device(args.sim_device)
-    
-    # print("Loding paths for each robot model...")
-    # #增加一部分用于记录轨迹各项均值/标准差的
-    # big_list = []
-    # state_recorde = {}    
-    # for pkl in tqdm(dataset_path_list):
-    #     tmp_state_mean, tmp_state_std, tmp_body_mean, tmp_body_std = 0,0,0,0
-    #     with open(pkl, 'rb') as f:
-    #         thelist = pickle.load(f)
-    #         traj_states,traj_bodies = [],[]
-    #         for traj in thelist:
-    #             traj_states.append(traj['observations'])
-    #             traj_bodies.append(traj['body'])
-    #         # used for input normalization
-    #         traj_states = np.concatenate(traj_states, axis=0)
-    #         traj_bodies = np.concatenate(traj_bodies, axis=0)
-    #         tmp_state_mean, tmp_state_std = np.mean(traj_states, axis=0), np.std(traj_states, axis=0) + 1e-6
-    #         tmp_body_mean, tmp_body_std = np.mean(traj_bodies, axis=0), np.std(traj_bodies, axis=0) + 1e-6
 
-    #         state_recorde[pkl.split('/')[-1][:-4]] = {"state_mean":tmp_state_mean, "state_std":tmp_state_std, "body_mean":tmp_body_mean, "body_std":tmp_body_std}
-    #     assert "body" in thelist[0]
-    #     big_list = big_list + thelist
-    # traj_dataset = D4RLTrajectoryDataset(big_list, context_len, rtg_scale, leg_trans_pro=True)
-    # assert body_dim == traj_dataset.body_dim
-    
-    # state_mean, state_std, body_mean, body_std = traj_dataset.get_state_stats(body=True)
-    # state_recorde["total"] = {"state_mean":state_mean, "state_std":state_std, "body_mean":body_mean, "body_std":body_std}
-    # with open("EAT-main/data/top1000_recorde.pkl", 'wb') as f:
-    #     pickle.dump(state_recorde, f)
-    #=========================================================================================================
     print("loading pre_record stds,means...")
-    with open("EAT-main/data/state_recorde.pkl", 'rb') as f:
-        dict_record = pickle.load(f)
-        # 以下使用独立均值：
-        # if(faulty_tag>=5):#由于没有左前右前的踝关节故障模型 所以坏损关节标号和轨迹标号需要重新对偶
-        #     the_tag = faulty_tag - 2
-        # elif(faulty_tag >= 2):
-        #     the_tag = faulty_tag - 1
-        # else:
-        #     the_tag = faulty_tag
-        # the_record = dict_record[file_list[the_tag + 1][:-4]]    #faulty_tag + 1是由于 -1代表着完好的机器狗，和file_list的储存方式错开一位
-        # 以下使用全局均值(optional)：
-        the_record = dict_record["total"]
-        
-        state_mean, state_std, body_mean, body_std = the_record["state_mean"],the_record["state_std"],the_record["body_mean"],the_record["body_std"]
-        
+    model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
+    state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
 
     #======================================================================
     #prepare envs
@@ -131,7 +74,7 @@ def play(args, faulty_tag = -1):
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.5]# 更改速度设置以防命令采样到0的情况    
+    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]# 更改速度设置以防命令采样到0的情况    
 
     # env = A1(num_envs=args.num_eval_ep, noise=args.noise)     #另一种环境初始化方式
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
@@ -157,7 +100,7 @@ def play(args, faulty_tag = -1):
             body_std=body_std
             ).to(device)
     model.load_state_dict(torch.load(
-        "/NAS2020/Workspaces/DRLGroup/wuxinyuan/leggedrobots/EAT-main/dt_runs/EAT_FID2341_26/model_best.pt"
+        os.path.join(model_path,"model_best.pt")
     ))
     model.eval()
     #====================================================================================
@@ -175,9 +118,9 @@ def play(args, faulty_tag = -1):
     eval_batch_size = 25  # envs
     max_test_ep_len=1000    #iters
     nobody = False
-    body_target = [0 for _ in range(12)]
+    body_target = [1 for _ in range(12)]
     if (faulty_tag != -1):
-        body_target[faulty_tag] = 1
+        body_target[faulty_tag] = flawed_rate
     results = {}
     total_reward = 0
     total_timesteps = 0
@@ -246,7 +189,7 @@ def play(args, faulty_tag = -1):
                 act = disable_leg(act.detach(), target="none", index=3)
                 # running_state, running_reward, done, _ = env.step(act.cpu())
                 
-                running_state, _, running_reward, done, infos = env.step(act, [faulty_tag])
+                running_state, _, running_reward, done, infos = env.step(act, [faulty_tag], flawed_rate)
                 # if t < max_test_ep_len/8:
                     # running_state, _, running_reward, done, infos = env.step(act, [-1])
                 

@@ -173,10 +173,6 @@ def train(args):
     # pdb.set_trace()
     wandb.init(config=config, project="my_EAT_test", name=model_file_name, mode="online" if not args.wandboff else "disabled", notes=args.note)
     
-    # turns = math.ceil(len(dataset_path_list)/20.0)  #轨迹太多的时候拆分成为之多20段一组的情况
-    # print(f"the training process will be sliced to {turns} parts ... ")
-    # for slices in range(turns):
-    #---------------------------------------------------------------------------------------------------------------
     print("Loding paths for each robot model...")
     #加载轨迹部分
     if len(dataset_path_list) < 13:

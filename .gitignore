@@ -6,5 +6,7 @@
 /models/
 #忽略采集的数据集
 /data/
+#忽略EAT采集的数据集
+/EAT_runs/
 #一些过程文件
 *.pyc
