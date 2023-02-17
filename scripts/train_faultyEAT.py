@@ -106,7 +106,7 @@ def train(args):
     dropout_p = args.dropout_p          # dropout probability
 
 
-    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("P20F10000-vel0.5-v0")
+    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("continue1000_faulty")
     
     # file_list = [f"a1magic{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
     file_list = [f"{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
@@ -179,7 +179,7 @@ def train(args):
     #---------------------------------------------------------------------------------------------------------------
     print("Loding paths for each robot model...")
     #加载轨迹部分
-    if len(dataset_path_list) < 13:
+    if len(dataset_path_list) < 103:
         traj_dataset, state_mean, state_std, body_mean, body_std = partial_traj(dataset_path_list)
     else:   #当轨迹过多时进行拆分
         dataset_list, state_mean_list, state_std_list, body_mean_list, body_std_list, xn = [],[],[],[],[],[]
@@ -450,7 +450,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--wandboff', default=False, action='store_true', help="Disable wandb")
 
-    parser.add_argument('--device', type=str, default='cuda')
+    parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--note', type=str, default='')
     parser.add_argument('--seed', type=int, default=0)
 

@@ -8,5 +8,6 @@
 /data/
 #忽略EAT采集的数据集
 /EAT_runs/
+/Tert_runs/
 #一些过程文件
 *.pyc

@@ -20,7 +20,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from utils import D4RLTrajectoryDataset, evaluate_on_env,  evaluate_on_env_batch_body, get_dataset_config #, get_d4rl_normalized_score,
+from utils import D4RLTrajectoryDatasetForTert, evaluate_on_env,  evaluate_on_env_batch_body, get_dataset_config #, get_d4rl_normalized_score,
 from model import DecisionTransformer, LeggedTransformer, LeggedTransformerPro, MLPBCModel
 import wandb
 from singlea1 import A1
@@ -28,31 +28,76 @@ from singlea1 import A1
 
 from tqdm import trange, tqdm
 
-def partial_traj(dataset_path_list, context_len=20, rtg_scale=1000, body_dim=12):
-    '''
-    当轨迹过长的时候，为照顾cpu运算负荷需要将数据集分几段加载，此函数处理一段，可以通过简单的复用调用来完成
-    -------------
-    输入：
-    dataset_path_list: list of trajs
-        一组轨迹的存储路径
-    batch_size: int
-        training batch size
-    context_len: int
-        transformer需要读取的上下文长度 
-    rtg_scale: int 
-        normalize returns to go
-    body_dim: int
-        number of body parts
+MODEL_PATH = "EAT_runs/EAT_FLAWEDPPO_00/"
+LOG_DIR = os.path.join(parentdir, "Tert_runs")
+NUM_ENVS = 1024
+
+
+def train(args):
     
+    #init=============================================================================
+    # saves model and csv in this directory
+    log_dir = args.log_dir
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
     
-    输出：
-    traj_data_loader：DataLoader objects
-        用以学习的轨迹对象
-    state_mean,state_std: float
-        状态值的均值和方差
-    body_mean,body_std: float
-        body值的均值方差
-    '''
+    run_idx = 0
+    model_file_name = f"TertEAT_" + args.dataset.split('.')[0].upper().replace("_", "").replace("-", "") + "_" + str(run_idx).zfill(2)
+    previously_saved_model = os.path.join(log_dir, model_file_name)
+    while os.path.exists(previously_saved_model):
+        run_idx += 1
+        model_file_name = f"TertEAT_" + args.dataset.split('.')[0].upper().replace("_", "").replace("-", "") + "_" + str(run_idx).zfill(2)
+        previously_saved_model = os.path.join(log_dir, model_file_name)
+
+    os.makedirs(os.path.join(log_dir, model_file_name))
+    save_model_path = os.path.join(log_dir, model_file_name, "model")
+
+    with open(os.path.join(log_dir, model_file_name, "note.txt"), 'w') as f:
+        f.write(args.note)
+    
+    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("TertEAT1024")
+    
+    # file_list = [f"a1magic{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
+    file_list = [f"{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
+    dataset_path_list_raw = [os.path.join(args.dataset_dir, d) for d in file_list]
+    dataset_path_list = []
+    for p in dataset_path_list_raw:
+        if os.path.isfile(p):
+            dataset_path_list.append(p)
+        else:
+            print(p, " doesn't exist~")
+            
+    config=vars(args)
+    config["dataset path"] = str(dataset_path_list)
+    config["model save path"] = save_model_path+".pt"
+    # config["log csv save path"] = log_csv_path
+
+    wandb.init(config=config, project="my_Tert_test", name=model_file_name, mode="online" if not args.wandboff else "disabled", notes=args.note)
+    
+    #preparing env=============================================================================
+    max_eval_ep_len = args.max_eval_ep_len  # max len of one episode
+    num_eval_ep = args.num_eval_ep          # num of evaluation episodes
+
+    batch_size = args.batch_size            # training batch size
+    lr = args.lr                            # learning rate
+    wt_decay = args.wt_decay                # weight decay
+    warmup_steps = args.warmup_steps        # warmup steps for lr scheduler
+
+    context_len = args.context_len      # K in decision transformer
+    n_blocks = args.n_blocks            # num of transformer blocks
+    embed_dim = args.embed_dim          # embedding (hidden) dim of transformer
+    n_heads = args.n_heads              # num of transformer heads
+    dropout_p = args.dropout_p          # dropout probability
+    
+    # training and evaluation device
+    device = torch.device(args.device)
+    env = A1(num_envs=args.num_eval_ep, noise=args.noise)
+
+
+    #preparing data=============================================================================            
+    print("Loding paths for each robot model...")
+    
+    #加载轨迹部分(暂时看起来用不到轨迹切分功能
     big_list = []
     for pkl in tqdm(dataset_path_list):  
         with open(pkl, 'rb') as f:
@@ -64,140 +109,31 @@ def partial_traj(dataset_path_list, context_len=20, rtg_scale=1000, body_dim=12)
         else:
             big_list = big_list + thelist[:args.cut]
 
-    traj_dataset = D4RLTrajectoryDataset(big_list, context_len, rtg_scale, leg_trans_pro=True)
-    assert body_dim == traj_dataset.body_dim
+    traj_dataset = D4RLTrajectoryDatasetForTert(big_list, context_len, leg_trans_pro=True)
     
     state_mean, state_std, body_mean, body_std = traj_dataset.get_state_stats(body=True)
     
-    return traj_dataset, state_mean, state_std, body_mean, body_std
-
-
-def train(args):
-
-    rtg_scale = 1000      # normalize returns to go
-
-    state_dim = 48
-    act_dim = 12
-    # body_dim = 3
-    ##!--一些需要注意的改动
-    #为了适应四条腿分别出现故障的情况 需要改动body_dim项
-    #原论文为（前腿长，后腿长，去赶场）
-    #改为 12个关节每个一维的形式
-    body_dim = 12
-    ##-----
-
-    max_eval_ep_len = args.max_eval_ep_len  # max len of one episode
-    num_eval_ep = args.num_eval_ep          # num of evaluation episodes
-
-    batch_size = args.batch_size            # training batch size
-    lr = args.lr                            # learning rate
-    wt_decay = args.wt_decay                # weight decay
-    warmup_steps = args.warmup_steps        # warmup steps for lr scheduler
-
-    # total updates = n_epochs x num_updates_per_iter
-    # n_epochs = args.n_epochs
-    # max_train_steps = args.max_train_steps
-    # num_updates_per_iter = args.num_updates_per_iter
-
-    context_len = args.context_len      # K in decision transformer
-    n_blocks = args.n_blocks            # num of transformer blocks
-    embed_dim = args.embed_dim          # embedding (hidden) dim of transformer
-    n_heads = args.n_heads              # num of transformer heads
-    dropout_p = args.dropout_p          # dropout probability
-
-
-    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("P20F10000-vel0.5-v0")
-    
-    # file_list = [f"a1magic{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
-    file_list = [f"{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
-    dataset_path_list_raw = [os.path.join(args.dataset_dir, d) for d in file_list]
-    dataset_path_list = []
-    for p in dataset_path_list_raw:
-        if os.path.isfile(p):
-            dataset_path_list.append(p)
-        else:
-            print(p, " doesn't exist~")
-
-    # env = A1(num_envs=args.num_eval_ep, robot=eval_env, noise=args.noise)
-    env = A1(num_envs=args.num_eval_ep, noise=args.noise)#这里eval_env编译不通过，因为注册表中没有该环境，暂时跳过试一下
-    
-    # saves model and csv in this directory
-    log_dir = args.log_dir
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-
-    # training and evaluation device
-    device = torch.device(args.device)
-
-    start_time = datetime.now().replace(microsecond=0)
-    start_time_str = start_time.strftime("%y-%m-%d-%H-%M-%S")
-
-    # note_abbr = ''.join([word[0] if not word.isnumeric() else word for word in np.concatenate([x.split() for x in re.split('(\d+)',args.note)]) ]).upper()
-    run_idx = 0
-    algo = "EAT" if not args.nobody else "NB"
-    model_file_name = f"{algo}_" + args.dataset.split('.')[0].upper().replace("_", "").replace("-", "") + "_" + str(run_idx).zfill(2)
-    previously_saved_model = os.path.join(log_dir, model_file_name)
-    while os.path.exists(previously_saved_model):
-        run_idx += 1
-        model_file_name = f"{algo}_" + args.dataset.split('.')[0].upper().replace("_", "").replace("-", "") + "_" + str(run_idx).zfill(2)
-        previously_saved_model = os.path.join(log_dir, model_file_name)
-
-    os.makedirs(os.path.join(log_dir, model_file_name))
-    save_model_path = os.path.join(log_dir, model_file_name, "model")
-
-    with open(os.path.join(log_dir, model_file_name, "note.txt"), 'w') as f:
-        f.write(args.note)
-        
-    log_csv_path = os.path.join(log_dir, model_file_name, "log.csv")
-
-    csv_writer = csv.writer(open(log_csv_path, 'a', 1))
-    csv_header = (["duration", "num_updates", "action_loss",
-                   "eval_avg_reward", "eval_avg_ep_len", "eval_d4rl_score"])
-
-    csv_writer.writerow(csv_header)
-
-    print("=" * 60)
-    print("start time: " + start_time_str)
-    print("=" * 60)
-
-    print("device set to: " + str(device))
-    print("dataset path: " + str(dataset_path_list))
-    print("model save path: " + save_model_path+".pt (.jit)")
-    print("log csv save path: " + log_csv_path)
-
-
-    config=vars(args)
-    config["dataset path"] = str(dataset_path_list)
-    config["model save path"] = save_model_path+".pt"
-    config["log csv save path"] = log_csv_path
-    # pdb.set_trace()
-    wandb.init(config=config, project="my_EAT_test", name=model_file_name, mode="online" if not args.wandboff else "disabled", notes=args.note)
-    
-    print("Loding paths for each robot model...")
-    #加载轨迹部分
-    if len(dataset_path_list) < 13:
-        traj_dataset, state_mean, state_std, body_mean, body_std = partial_traj(dataset_path_list)
-    else:   #当轨迹过多时进行拆分
-        dataset_list, state_mean_list, state_std_list, body_mean_list, body_std_list, xn = [],[],[],[],[],[]
-        print(f"divide trajs to {math.ceil(len(dataset_path_list)/12.0)} parts")
-        for i in range( math.ceil(len(dataset_path_list)/12.0) ):
-            print(f"getting {i+1} parts trajs...")
-            traj_dataset, state_mean, state_std, body_mean, body_std = partial_traj(dataset_path_list[12 * i : 12 * i + 12])
-            dataset_list.append(traj_dataset)
-            state_mean_list.append(state_mean)
-            state_std_list.append(state_std)
-            body_mean_list.append(body_mean)
-            body_std_list.append(body_std)
-            xn.append(len(traj_dataset))
+    # else:   #当轨迹过多时进行拆分
+    #     dataset_list, state_mean_list, state_std_list, body_mean_list, body_std_list, xn = [],[],[],[],[],[]
+    #     print(f"divide trajs to {math.ceil(len(dataset_path_list)/12.0)} parts")
+    #     for i in range( math.ceil(len(dataset_path_list)/12.0) ):
+    #         print(f"getting {i+1} parts trajs...")
+    #         traj_dataset, state_mean, state_std, body_mean, body_std = partial_traj(dataset_path_list[12 * i : 12 * i + 12])
+    #         dataset_list.append(traj_dataset)
+    #         state_mean_list.append(state_mean)
+    #         state_std_list.append(state_std)
+    #         body_mean_list.append(body_mean)
+    #         body_std_list.append(body_std)
+    #         xn.append(len(traj_dataset))
             
-        #合并轨迹与各项均值方差
-        traj_dataset = torch.utils.data.ConcatDataset(dataset_list)
-        state_ndarray = np.expand_dims(xn, 1).repeat(48,1)
-        body_ndarray = np.expand_dims(xn, 1).repeat(12,1)
-        state_mean = np.sum(state_mean_list*state_ndarray,0)/np.sum(xn)
-        state_std = np.sum(state_std**2*state_ndarray,0)/np.sum(xn)  #由于numpy.std默认求有偏样本标准差 所以这里分母是n
-        body_mean = np.sum(body_mean_list*body_ndarray,0)/np.sum(xn)
-        body_std = np.sum(body_std**2*body_ndarray,0)/np.sum(xn)
+    #     #合并轨迹与各项均值方差
+    #     traj_dataset = torch.utils.data.ConcatDataset(dataset_list)
+    #     state_ndarray = np.expand_dims(xn, 1).repeat(48,1)
+    #     body_ndarray = np.expand_dims(xn, 1).repeat(12,1)
+    #     state_mean = np.sum(state_mean_list*state_ndarray,0)/np.sum(xn)
+    #     state_std = np.sum(state_std**2*state_ndarray,0)/np.sum(xn)  #由于numpy.std默认求有偏样本标准差 所以这里分母是n
+    #     body_mean = np.sum(body_mean_list*body_ndarray,0)/np.sum(xn)
+    #     body_std = np.sum(body_std**2*body_ndarray,0)/np.sum(xn)
 
     traj_data_loader = DataLoader(
                             traj_dataset,
@@ -211,51 +147,55 @@ def train(args):
     n_epochs = int(1e6 / len(traj_data_loader) * args.n_epochs_ref)
     num_updates_per_iter = len(traj_data_loader)
     
-
-    # data_iter = iter(traj_data_loader)
-
-    ## get state stats from dataset
-    # state_mean, state_std, body_mean, body_std = traj_dataset.get_state_stats(body=True)    
-    
     np.save(f"{save_model_path}.state_mean", state_mean)
     np.save(f"{save_model_path}.state_std", state_std)
     np.save(f"{save_model_path}.body_mean", body_mean)
     np.save(f"{save_model_path}.body_std", body_std)
-    #---------------------------------------------------------------------------------------------------------------------------
-    # if slices == 0:
-    #只有当第一次循环时才进行初始化工作
+    
+    state_mean = torch.from_numpy(state_mean).to(device)
+    state_std = torch.from_numpy(state_std).to(device)
+    body_mean = torch.from_numpy(body_mean).to(device)
+    body_std = torch.from_numpy(body_std).to(device)
+
+
+    #loading EAT model=============================================================================
+    # loading pre_record stds,means...
+    model_path = os.path.join(parentdir, MODEL_PATH)
+    # loading EAT model
+    eval_batch_size = NUM_ENVS  # envs
+    max_test_ep_len = 1000    	#iters
+
+    state_dim = 48
+    act_dim = 12
+    body_dim = 12	
+
+    n_blocks = 6            # num of transformer blocks
+    embed_dim = 128          # embedding (hidden) dim of transformer 
+    n_heads = 1              # num of transformer heads
+    dropout_p = 0.1          # dropout probability
+    device = torch.device(args.device)
+    
     print("model preparing")
-    if args.nobody:
-        model = DecisionTransformer(
-                state_dim=state_dim,
-                act_dim=act_dim,
-                n_blocks=n_blocks,
-                h_dim=embed_dim,
-                context_len=context_len,
-                n_heads=n_heads,
-                drop_p=dropout_p,
-                state_mean=state_mean,
-                state_std=state_std,
-                use_rtg =False,
+    EAT_model = LeggedTransformerPro(
+            body_dim=body_dim,
+            state_dim=state_dim,
+            act_dim=act_dim,
+            n_blocks=n_blocks,
+            h_dim=embed_dim,
+            context_len=context_len,
+            n_heads=n_heads,
+            drop_p=dropout_p,
+            state_mean=state_mean,
+            state_std=state_std,
+            body_mean=body_mean,
+            body_std=body_std
             ).to(device)
-    else:
-        model = LeggedTransformerPro(
-                    body_dim=body_dim,
-                    state_dim=state_dim,
-                    act_dim=act_dim,
-                    n_blocks=n_blocks,
-                    h_dim=embed_dim,
-                    context_len=context_len,
-                    n_heads=n_heads,
-                    drop_p=dropout_p,
-                    state_mean=state_mean,
-                    state_std=state_std,
-                    body_mean=body_mean,
-                    body_std=body_std
-                ).to(device)
+    EAT_model.load_state_dict(torch.load(
+        os.path.join(model_path,"model_best.pt")
+    ))
         
     optimizer = torch.optim.AdamW(
-                        model.parameters(),
+                        EAT_model.parameters(),
                         lr=lr,
                         weight_decay=wt_decay,
                         betas=(0.9, 0.95)
@@ -269,6 +209,21 @@ def train(args):
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     np.random.seed(args.seed)
+    
+
+    #training=============================================================================
+    
+    start_time = datetime.now().replace(microsecond=0)
+    start_time_str = start_time.strftime("%y-%m-%d-%H-%M-%S")
+    
+    print("=" * 60)
+    print("start time: " + start_time_str)
+    print("=" * 60)
+
+    print("device set to: " + str(device))
+    print("dataset path: " + str(dataset_path_list))
+    print("model save path: " + save_model_path+".pt (.jit)")
+    # print("log csv save path: " + log_csv_path)    
 
     max_d4rl_score = -1.0
     total_updates = 0
@@ -280,9 +235,9 @@ def train(args):
         # pdb.set_trace()
 
         log_action_losses = []
-        model.train()
+        EAT_model.train()
 
-        for timesteps, states, actions, body, traj_mask in iter(traj_data_loader):
+        for timesteps, states, actions, teacher_actions, body, traj_mask in iter(traj_data_loader):
 
 
             timesteps = timesteps.to(device)    # B x T
@@ -291,21 +246,15 @@ def train(args):
             # returns_to_go = returns_to_go.to(device).unsqueeze(dim=-1) # B x T x 1
             body = body.to(device).type(actions.dtype) # B x T x body_dim
             traj_mask = traj_mask.to(device)    # B x T
-            action_target = torch.clone(actions).detach().to(device)
+            action_target = torch.clone(teacher_actions).detach().to(device)
 
-            if not args.nobody:
-                state_preds, action_preds, return_preds = model.forward(
-                                                                timesteps=timesteps,
-                                                                states=states,
-                                                                actions=actions,
-                                                                body=body
-                                                            )
-            else:
-                state_preds, action_preds, return_preds = model.forward(
-                                                                timesteps=timesteps,
-                                                                states=states,
-                                                                actions=actions
-                                                            )
+            state_preds, action_preds, return_preds = EAT_model.forward(
+                                                            timesteps=timesteps,
+                                                            states=states,
+                                                            actions=actions,
+                                                            body=body
+                                                        )
+            
             # only consider non padded elements
             action_preds = action_preds.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             action_target = action_target.view(-1, act_dim)[traj_mask.view(-1,) > 0]
@@ -321,7 +270,7 @@ def train(args):
 
             optimizer.zero_grad()
             action_loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
+            torch.nn.utils.clip_grad_norm_(EAT_model.parameters(), 0.25)
             optimizer.step()
             scheduler.step()
 
@@ -339,7 +288,7 @@ def train(args):
         if epoch % max(int(5000/num_updates_per_iter), 1) == 0:
             # evaluate action accuracy
 
-            results = evaluate_on_env_batch_body(model, device, context_len, env, eval_body_vec, 1,
+            results = evaluate_on_env_batch_body(EAT_model, device, context_len, env, eval_body_vec, 1,
                                                 num_eval_ep, max_eval_ep_len, state_mean, state_std, body_mean, body_std, nobody=args.nobody)
 
         
@@ -373,27 +322,27 @@ def train(args):
                         eval_avg_reward, eval_avg_ep_len,
                         eval_d4rl_score]
 
-            csv_writer.writerow(log_data)
+            # csv_writer.writerow(log_data)
 
             # save model
             if eval_d4rl_score >= max_d4rl_score:
                 tqdm.write("saving max score model at: " + save_model_path+"_best.pt(.jit)")
                 tqdm.write("max score: " + format(max_d4rl_score, ".5f"))
-                torch.save(model.state_dict(), save_model_path+"_best.pt")
-                traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
+                torch.save(EAT_model.state_dict(), save_model_path+"_best.pt")
+                traced_script_module = torch.jit.script(copy.deepcopy(EAT_model).to('cpu'))
                 traced_script_module.save(save_model_path+"_best.jit")
                 max_d4rl_score = eval_d4rl_score
 
         if epoch % 1000 == 0:
-            torch.save(model.state_dict(), save_model_path+str(epoch)+"epoch.pt")
-            traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
+            torch.save(EAT_model.state_dict(), save_model_path+str(epoch)+"epoch.pt")
+            traced_script_module = torch.jit.script(copy.deepcopy(EAT_model).to('cpu'))
             traced_script_module.save(save_model_path+str(epoch)+"epoch.jit")
 
         # tqdm.write("saving current model at: " + save_model_path+".pt(.jit)") 
         # print("saving current model at: " + save_model_path+".pt(.jit)")
         # if total_updates % 10 == 0:
-        torch.save(model.state_dict(), save_model_path+str(epoch%10)+".pt")
-        traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
+        torch.save(EAT_model.state_dict(), save_model_path+str(epoch%10)+".pt")
+        traced_script_module = torch.jit.script(copy.deepcopy(EAT_model).to('cpu'))
         traced_script_module.save(save_model_path+str(epoch%10)+".jit")
 
 
@@ -425,8 +374,8 @@ if __name__ == "__main__":
     parser.add_argument('--num_eval_ep', type=int, default=100)
     parser.add_argument('--noise', type=int, help="noisy environemnt for evaluation", default=0)
 
-    parser.add_argument('--dataset_dir', type=str, default='Integration_EAT/data/')
-    parser.add_argument('--log_dir', type=str, default='Integration_EAT/EAT_runs/')
+    parser.add_argument('--dataset_dir', type=str, default='Integration_EAT/data/Tert_data')
+    parser.add_argument('--log_dir', type=str, default='Integration_EAT/Tert_runs/')
     parser.add_argument('--cut', type=int, default=0)
 
     parser.add_argument('--context_len', type=int, default=20)  #50 试一下
@@ -446,11 +395,11 @@ if __name__ == "__main__":
 
     parser.add_argument('--wandboff', default=False, action='store_true', help="Disable wandb")
 
-    parser.add_argument('--device', type=str, default='cuda')
+    parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--note', type=str, default='')
     parser.add_argument('--seed', type=int, default=0)
 
     # args = parser.parse_args()
     args, unknown = parser.parse_known_args()
-    
+    args.wandboff = True
     train(args)

@@ -29,7 +29,7 @@ from tqdm import trange, tqdm
 
 SAVE_DIR = os.path.join(parentdir, "data/Tert_data/")
 NUM_ENVS = 1024 #10000 # 400 #4000 #1000 # 50# 20000 #
-REP = 1 #10 #20
+REP = 8 #1 #10 #20
 
 # param_dict = {}
 ## 断腿版本的i_magic命名规则：共12维，1代表正常 小数代表力矩折扣率
@@ -55,7 +55,7 @@ def play(args, env, train_cfg, fault_type = "none", fault_rate = 1):
 	"""
 	print(f"collecting {fault_type} with flawed_rate {fault_rate} ...")
 	#preparing work
-	env.reset()
+	# env.reset()
 	data_set = {'observations':[], 'next_observations':[], 'actions':[], 'teacher_actions':[], 'terminals':[]}
 	total_dones = np.zeros(NUM_ENVS)
 	#preparing output dir
@@ -129,55 +129,59 @@ def play(args, env, train_cfg, fault_type = "none", fault_rate = 1):
     
 	#recording data   
 	assert int(env.max_episode_length) == 1000
-	timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
-	timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
-	actions = torch.zeros((eval_batch_size, max_test_ep_len, act_dim),
-                                dtype=torch.float32, device=device)
-	states = torch.zeros((eval_batch_size, max_test_ep_len, state_dim),
-						dtype=torch.float32, device=device)
+	
 	body_target = (torch.tensor(body_target, dtype=torch.float32, device=device) - body_mean) / body_std
 	bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32)
 
-	obs = env.get_observations()
+	# obs = env.get_observations()
 
 	# collecting data
-	for t in trange(REP*int(env.max_episode_length)):
-		#以下循环在REP不为1的时候也许存在问题 懒得改了 以后有空再说吧  
-		states[:,t,:] = obs
-		states[:,t,:] = (states[:,t,:] - state_mean) / state_std
+	for i in range(REP):
+		print(f"REP:{i+1}")
+		obs = env.reset()[0]
+		timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
+		timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
+		actions = torch.zeros((eval_batch_size, max_test_ep_len, act_dim),
+									dtype=torch.float32, device=device)
+		states = torch.zeros((eval_batch_size, max_test_ep_len, state_dim),
+							dtype=torch.float32, device=device)
+ 
+		for t in trange(int(env.max_episode_length)):
+			states[:,t,:] = obs
+			states[:,t,:] = (states[:,t,:] - state_mean) / state_std
 
-		if t < context_len:
-			_, act_preds, _ = EAT_model.forward(timesteps[:,:context_len],
-										states[:,:context_len],
-										actions[:,:context_len],
-										body=bodies[:,:context_len])
-			
-			act = act_preds[:, t].detach()
-		else:
-			_, act_preds, _ = EAT_model.forward(timesteps[:,t-context_len+1:t+1],
-									states[:,t-context_len+1:t+1],
-									actions[:,t-context_len+1:t+1],
-									body=bodies[:,t-context_len+1:t+1])
-			act = act_preds[:, -1].detach()
-                    
-		teacher_actions = policy(obs.detach())
+			if t < context_len:
+				_, act_preds, _ = EAT_model.forward(timesteps[:,:context_len],
+											states[:,:context_len],
+											actions[:,:context_len],
+											body=bodies[:,:context_len])
+				
+				act = act_preds[:, t].detach()
+			else:
+				_, act_preds, _ = EAT_model.forward(timesteps[:,t-context_len+1:t+1],
+										states[:,t-context_len+1:t+1],
+										actions[:,t-context_len+1:t+1],
+										body=bodies[:,t-context_len+1:t+1])
+				act = act_preds[:, -1].detach()
+						
+			teacher_actions = policy(obs.detach())
 
-		data_set['observations'].append(obs.cpu().detach().numpy()[:,:48])
-		data_set['actions'].append(act.cpu().detach().numpy())
-		data_set['teacher_actions'].append(teacher_actions.cpu().detach().numpy())
+			data_set['observations'].append(obs.cpu().detach().numpy()[:,:48])
+			data_set['actions'].append(act.cpu().detach().numpy())
+			data_set['teacher_actions'].append(teacher_actions.cpu().detach().numpy())
 
-		if fault_type == "none":
-			obs, _, rews, dones, infos = env.step(actions[:,t,:].detach())
-		else:
-			obs, _, rews, dones, infos = env.step(actions[:,t,:].detach(), flawed_joint = [codename_list.index(fault_type)], flawed_rate = fault_rate)
+			if fault_type == "none":
+				obs, _, rews, dones, infos = env.step(actions[:,t,:].detach())
+			else:
+				obs, _, rews, dones, infos = env.step(actions[:,t,:].detach(), flawed_joint = [codename_list.index(fault_type)], flawed_rate = fault_rate)
 
-		data_set['terminals'].append(dones.cpu().detach().numpy())		
-		data_set['next_observations'].append(obs.cpu().detach().numpy()[:,:48])
+			data_set['terminals'].append(dones.cpu().detach().numpy())		
+			# data_set['next_observations'].append(obs.cpu().detach().numpy()[:,:48])
 	
 	#recording data
 	print("[REORGANISING DATA ......]")
 
-	keys = ['observations', 'next_observations', 'actions', 'teacher_actions', 'terminals']
+	keys = ['observations', 'actions', 'teacher_actions', 'terminals']
 
 	for k in keys:
 		print("Preprocessing ", k)
@@ -185,13 +189,13 @@ def play(args, env, train_cfg, fault_type = "none", fault_rate = 1):
 
 
 	obss = np.array(data_set['observations']).transpose((1,0,2))
-	nobss = np.array(data_set['next_observations']).transpose((1,0,2))
+	# nobss = np.array(data_set['next_observations']).transpose((1,0,2))
 	acts = np.array(data_set['actions']).transpose((1,0,2))
 	teacher_acts = np.array(data_set['teacher_actions']).transpose((1,0,2))
 	ds = np.array(data_set['terminals']).transpose()
 
 	paths = []
-	for obs_p, nobs_p, act_p, teacher_p, done_p in zip(obss, nobss, acts, teacher_acts, ds):
+	for obs_p, act_p, teacher_p, done_p in zip(obss, acts, teacher_acts, ds):
 		obs_list = []
 		nobs_list = []
 		act_list = []
@@ -199,9 +203,9 @@ def play(args, env, train_cfg, fault_type = "none", fault_rate = 1):
 		done_list = []
 		path_dict = {}
 
-		for obs_t, nobs_t, act_t, teacher_t, done_t in zip(obs_p, nobs_p, act_p, teacher_p, done_p):
+		for obs_t, act_t, teacher_t, done_t in zip(obs_p, act_p, teacher_p, done_p):
 			obs_list.append(obs_t)
-			nobs_list.append(nobs_t)
+			# nobs_list.append(nobs_t)
 			act_list.append(act_t)
 			teacher_act_list.append(teacher_t)
 			done_list.append(done_t)
@@ -209,7 +213,7 @@ def play(args, env, train_cfg, fault_type = "none", fault_rate = 1):
 				break
 
 		path_dict['observations'] = np.array(obs_list)
-		path_dict['next_observations'] = np.array(nobs_list)
+		# path_dict['next_observations'] = np.array(nobs_list)
 		path_dict['actions'] = np.array(act_list)
 		path_dict['teacher_actions'] = np.array(teacher_act_list)
 		path_dict['terminals'] = np.array(done_list)
@@ -233,6 +237,7 @@ def play(args, env, train_cfg, fault_type = "none", fault_rate = 1):
 
 	with open(output_file, 'wb') as f:
 		pickle.dump(paths, f)
+  
 	print(f"joint{fault_type} with flawed rate {fault_rate} collection over.")
 	print("Saved to ", output_file, " ~!")
 
