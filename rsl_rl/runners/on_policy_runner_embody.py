@@ -116,6 +116,9 @@ class OnPolicyRunner_Embody:
         cur_episode_length = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
 
         tot_iter = self.current_learning_iteration + num_learning_iterations
+
+        max_reward = -1e9
+
         for it in range(self.current_learning_iteration, tot_iter):
             start = time.time()
             # Rollout
@@ -156,9 +159,14 @@ class OnPolicyRunner_Embody:
             stop = time.time()
             learn_time = stop - start
             if self.log_dir is not None:
-                self.log(locals())
+                rw = self.log(locals())
+                if rw > max_reward:
+                    max_reward = rw
+                    self.save(os.path.join(self.log_dir, "best_model.pt"))
+
             if it % self.save_interval == 0:
                 self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
+            
             ep_infos.clear()
         
         self.current_learning_iteration += num_learning_iterations
@@ -233,6 +241,8 @@ class OnPolicyRunner_Embody:
                        f"""{'ETA:':>{pad}} {self.tot_time / (locs['it'] + 1) * (
                                locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
         print(log_string)
+        return statistics.mean(locs['rewbuffer'])
+
 
     def save(self, path, infos=None):
         torch.save({
