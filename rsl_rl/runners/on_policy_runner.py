@@ -104,7 +104,8 @@ class OnPolicyRunner:
         for it in range(self.current_learning_iteration, tot_iter):
             start = time.time()
             #设定随机坏损的比率
-            random_index = 100
+            # random_index = 100
+            max_rew = -1.0
             # Rollout
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
@@ -152,6 +153,9 @@ class OnPolicyRunner:
                 self.log(locals())
             if it % self.save_interval == 0:
                 self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
+            if statistics.mean(rewbuffer) > max_rew:
+                max_rew = statistics.mean(rewbuffer)
+                self.save(os.path.join(self.log_dir, 'model_best.pt'))
             ep_infos.clear()
         
         self.current_learning_iteration += num_learning_iterations
