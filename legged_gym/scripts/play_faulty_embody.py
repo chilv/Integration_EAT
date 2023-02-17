@@ -86,8 +86,8 @@ def play(args):
     # load policy
     train_cfg.runner.resume = True
     # train_cfg.runner.load_run = "strange"
-    train_cfg.runner.load_run = "Feb15_13-16-38_"
-    train_cfg.runner.checkpoint = -1
+    train_cfg.runner.load_run = "dwt"
+    train_cfg.runner.checkpoint = 1000
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy = ppo_runner.get_inference_policy(device=env.device)
     
@@ -112,15 +112,17 @@ def play(args):
     lengthbuffer = deque(maxlen=100)
     
     bodydim=12
-    rate = 0.9
+    rate = 1
     t = torch.rand(env_cfg.env.num_envs)
-    p = torch.randint(1, bodydim+1, (env_cfg.env.num_envs,))
+    # p = torch.randint(1, bodydim+1, (env_cfg.env.num_envs,))
+    p = torch.ones(env_cfg.env.num_envs)
     t = (t<rate) * p
     bodys = torch.ones(env_cfg.env.num_envs, bodydim)
-    # import random
-    # for i in range(env_cfg.env.num_envs):
-    #     if t[i] > 0:
-    #         bodys[i][t[i]-1] = random.random()
+    import random
+    for i in range(env_cfg.env.num_envs):
+        if t[i] > 0:
+            # bodys[i][t[i]-1] = random.random()
+            bodys[i][10] = 0
     bodys = bodys.to(env.device)
 
 
