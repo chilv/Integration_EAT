@@ -295,7 +295,7 @@ def train(args):
             eval_avg_reward = results['eval/avg_reward']
             eval_avg_ep_len = results['eval/avg_ep_len']
             eval_d4rl_score = results['eval/avg_reward']
-            # eval_avg_reward = eval_avg_ep_len = eval_d4rl_score = 1000
+            eval_avg_reward = eval_avg_ep_len = eval_d4rl_score = 1000
             
 
             mean_action_loss = np.mean(log_action_losses)
@@ -401,5 +401,5 @@ if __name__ == "__main__":
 
     # args = parser.parse_args()
     args, unknown = parser.parse_known_args()
-    args.wandboff = True
+    # args.wandboff = True
     train(args)

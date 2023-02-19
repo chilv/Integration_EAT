@@ -86,7 +86,7 @@ def play(args):
     # load policy
     train_cfg.runner.resume = True
     # train_cfg.runner.load_run = "strange"
-    train_cfg.runner.load_run = "Feb14_08-02-24_RBK_0"
+    train_cfg.runner.load_run = "0_torques/RBA_0/"
     train_cfg.runner.checkpoint = -1
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy = ppo_runner.get_inference_policy(device=env.device)
@@ -114,7 +114,7 @@ def play(args):
     for i in range(2*int(env.max_episode_length)):
         actions = policy(obs.detach())
         actions = disable_leg(actions, target="none", index=2)#let one joint or leg be disabled
-        obs, _, rews, dones, infos = env.step(actions.detach(), flawed_joint = [10], flawed_rate = 0)
+        obs, _, rews, dones, infos = env.step(actions.detach(), flawed_joint = [11], flawed_rate = 0)
         
         cur_reward_sum += rews
         new_ids = (dones > 0).nonzero(as_tuple=False)

@@ -61,6 +61,7 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
 
     print("loading pre_record stds,means...")
     model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
+    # model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
     state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
 
     #======================================================================
@@ -260,4 +261,4 @@ if __name__ == "__main__":
     
     RECORD_FRAMES = False
     MOVE_CAMERA = False
-    play(args, 11)
+    play(args, 11, 0)
