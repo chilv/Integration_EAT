@@ -349,7 +349,7 @@ def train(args):
             timesteps = timesteps.to(device)    # B x T
             states = states.to(device)          # B x T x state_dim
 
-            states = (states - state_mean)/state_std
+            # states = (states - state_mean)/state_std
 
             actions = actions.to(device)        # B x T x act_dim
             # returns_to_go = returns_to_go.to(device).unsqueeze(dim=-1) # B x T x 1
