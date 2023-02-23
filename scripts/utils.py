@@ -489,7 +489,7 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
             total_rewards += running_reward.detach().cpu().numpy() * (dones == 0)
             dones += done.detach().cpu().numpy()
 
-            # running_body = flaw(running_body, joints)
+            running_body = flaw(running_body, joints)
 
 
             

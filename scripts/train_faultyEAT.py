@@ -142,7 +142,7 @@ def train(args):
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]
+    env_cfg.commands.ranges.lin_vel_x = [0.5, 0.5]
     env, _ = task_registry.make_env(name = args.task, args = env_args, env_cfg = env_cfg)
     # env = A1(num_envs=args.num_eval_ep, noise=args.noise)#这里eval_env编译不通过，因为注册表中没有该环境，暂时跳过试一下
     
