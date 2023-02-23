@@ -10,3 +10,6 @@
 *.pyc
 
 *.DS_Store
+
+/EAT_runs/
+/Models
