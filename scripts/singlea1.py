@@ -42,7 +42,7 @@ class A1(gym.Env):
         env_cfg.domain_rand.randomize_friction = bool(noise)
         env_cfg.domain_rand.push_robots = bool(noise)
 
-        env_cfg.commands.ranges.lin_vel_x = [0.4,0.7]
+        env_cfg.commands.ranges.lin_vel_x = [0.3,0.7]
         env_cfg.commands.ranges.lin_vel_y = [0.0,0.0]
         env_cfg.commands.ranges.ang_vel_yaw = [0.0,0.0]
 
@@ -71,34 +71,34 @@ class A1(gym.Env):
         else:
             return obs
         
-    def step(self, action, broken=False):
+    def step(self, action, flawed_joint = [-1], flawed_rate = 1):
 
-        if broken:
-            # action[2] = 0 #RF
-            # action[5] = 0 #LF
-            # action[1] = 1 #RF
-            # action[2] = -1 #LF
+        # if broken:
+        #     # action[2] = 0 #RF
+        #     # action[5] = 0 #LF
+        #     # action[1] = 1 #RF
+        #     # action[2] = -1 #LF
 
-            # action[1] = 0
-            # action[2] = 0
-            # action[4] = 0
-            # action[5] = 0
+        #     # action[1] = 0
+        #     # action[2] = 0
+        #     # action[4] = 0
+        #     # action[5] = 0
 
-            # action[1] = 0
-            # action[2] = 0
-            # action[4] = 0
-            # action[5] = 0
-            action[6] = 0
-            action[7] = 0
-            action[8] = 0
-            action[9] = 0
-            action[10] = 0
-            action[11] = 0
+        #     # action[1] = 0
+        #     # action[2] = 0
+        #     # action[4] = 0
+        #     # action[5] = 0
+        #     action[6] = 0
+        #     action[7] = 0
+        #     action[8] = 0
+        #     action[9] = 0
+        #     action[10] = 0
+        #     action[11] = 0
 
 
         if self.num_envs is None:
             actions = torch.Tensor(np.array([action]))
-            obs, _, rews, dones, infos = self.env.step(actions.detach())
+            obs, _, rews, dones, infos = self.env.step(actions.detach(), flawed_joint, flawed_rate)
             s = np.squeeze(obs.detach().cpu().numpy())
             # print("COMMAND: ", s[9:12])
             # print("POS: ", self.env.root_states[0, :2])
@@ -110,7 +110,7 @@ class A1(gym.Env):
             return s, rews.detach().cpu().numpy().item(), dones.detach().cpu().numpy().item(), infos
 
         else:
-            obs, _, rews, dones, infos = self.env.step(action.detach())
+            obs, _, rews, dones, infos = self.env.step(action.detach(), flawed_joint, flawed_rate)
             return obs.detach(), rews.detach(), dones.detach(), infos
 
     def get_normalized_score(self, score):

@@ -60,7 +60,7 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     dropout_p = 0.1          # dropout probability
 
     print("loading pre_record stds,means...")
-    model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
+    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO/")
     # model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
     state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
 
@@ -234,9 +234,9 @@ if __name__ == "__main__":
     parser.add_argument('--log_dir', type=str, default='Integraton_EAT/EAT_runs/')
     parser.add_argument('--cut', type=int, default=0)
 
-    parser.add_argument('--context_len', type=int, default=20)
+    # parser.add_argument('--context_len', type=int, default=50)
     parser.add_argument('--n_blocks', type=int, default=6)
-    # parser.add_argument('--embed_dim', type=int, default=128)
+    # parser.add_argument('--embed_dim', type=int, default=256)
     parser.add_argument('--n_heads', type=int, default=1)
     parser.add_argument('--dropout_p', type=float, default=0.1)
 
@@ -261,4 +261,4 @@ if __name__ == "__main__":
     
     RECORD_FRAMES = False
     MOVE_CAMERA = False
-    play(args, 11, 0)
+    play(args, 2, 0)

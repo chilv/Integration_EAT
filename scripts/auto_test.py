@@ -43,6 +43,7 @@ from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Log
 from model import LeggedTransformerPro
 
 import numpy as np
+import pandas as pd
 import torch
 from collections import deque
 import statistics
@@ -209,7 +210,7 @@ if __name__ == '__main__':
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]# 更改速度设置以防命令采样到0的情况    
+    env_cfg.commands.ranges.lin_vel_x = [0.05, 0.3]# 更改速度设置以防命令采样到0的情况    
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
@@ -221,7 +222,11 @@ if __name__ == '__main__':
     #     # for j in range (0, 0.8, 0.1):
     #     for j in ppo_row_names:            
     #         out_table[i, ppo_row_names.index(j)], _ = test_ppo(args, env, train_cfg, i, j)
-    # out_table[:,4],_ = test_ppo(args, env, train_cfg, -1, 1) #测完好情况
+    # out_table[:,-1],_ = test_ppo(args, env, train_cfg, -1, 1) #测完好情况
+    # ppo_df = pd.DataFrame(out_table)
+    # ppo_df.index = codename_list
+    # ppo_df.columns = [0,0.25,0.5, 0.75, 1.0]
+    # ppo_res = ppo_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_ppo_0.05.csv"), mode='w')
     # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_ppo.csv"), out_table, delimiter=',')
     #测试ppo结束===================================================================
     
@@ -229,7 +234,7 @@ if __name__ == '__main__':
     #测试EAT======================================================================
     #loading EAT model
     # loading pre_record stds,means...
-    model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
+    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO/")
     state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
     pass_args = {"state_mean":state_mean, "state_std":state_std, "body_mean":body_mean, "body_std":body_std}
     
@@ -269,7 +274,11 @@ if __name__ == '__main__':
         # for j in range (0, 0.8, 0.1):
         for j in EAT_rows:            
             EAT_table[i, np.where(EAT_rows==j)], _ = test_EAT(args, env, EAT_model, pass_args, i, j)
-    EAT_table[:,4],_ = test_EAT(args, env, EAT_model, pass_args, -1, 1) #测完好情况
-    np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT.csv"), EAT_table, delimiter=',')
+    # EAT_table[:,-1],_ = test_EAT(args, env, EAT_model, pass_args, -1, 1) #测完好情况
+    EAT_df = pd.DataFrame(EAT_table)
+    EAT_df.index = codename_list
+    EAT_df.columns = np.arange(0.0, 1.0, 0.1)
+    EAT_res = EAT_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT_IPPO.csv"), mode='w')
+    # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT2.csv"), EAT_table, delimiter=',')
     #测试EAT结束===================================================================
     

@@ -86,7 +86,8 @@ def train(args):
     body_dim = 12
     ##-----
 
-    max_eval_ep_len = args.max_eval_ep_len  # max len of one episode
+    max_eval_ep_len = 500  # max len of one episode
+    # max_eval_ep_len = args.max_eval_ep_len  # max len of one episode
     num_eval_ep = args.num_eval_ep          # num of evaluation episodes
 
     batch_size = args.batch_size            # training batch size
@@ -227,7 +228,6 @@ def train(args):
     np.save(f"{save_model_path}.body_std", body_std)
     #---------------------------------------------------------------------------------------------------------------------------
     # if slices == 0:
-    #只有当第一次循环时才进行初始化工作
     print("model preparing")
     if args.nobody:
         model = DecisionTransformer(
@@ -433,9 +433,9 @@ if __name__ == "__main__":
     parser.add_argument('--log_dir', type=str, default='Integration_EAT/EAT_runs/')
     parser.add_argument('--cut', type=int, default=0)
 
-    parser.add_argument('--context_len', type=int, default=20)  #50 试一下
+    parser.add_argument('--context_len', type=int, default=50)  #50 试一下
     parser.add_argument('--n_blocks', type=int, default=6)
-    parser.add_argument('--embed_dim', type=int, default=128)   #! 试图修改transformer规模
+    parser.add_argument('--embed_dim', type=int, default=256)   #! 试图修改transformer规模
     parser.add_argument('--n_heads', type=int, default=1)
     parser.add_argument('--dropout_p', type=float, default=0.1)
 
@@ -456,5 +456,6 @@ if __name__ == "__main__":
 
     # args = parser.parse_args()
     args, unknown = parser.parse_known_args()
+    # args.wandboff = True
     
     train(args)

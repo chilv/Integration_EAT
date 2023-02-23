@@ -414,45 +414,49 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
             # bodies = torch.zeros((eval_batch_size, max_test_ep_len, body_dim),
             #                     dtype=torch.float32, device=device)
 
-            if body_mean is not None:
-                # pdb.set_trace()
-                body_target = (torch.tensor(body_target, dtype=torch.float32, device=device) - body_mean) / body_std
-            else:
-                body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
-
-
-            bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32)
-
-            # init episode
-            running_state = env.reset()
-            # running_reward = 0
-            running_reward = torch.zeros((eval_batch_size, ),
-                                dtype=torch.float32, device=device)
-            # running_rtg = rtg_target*np.ones((eval_batch_size,), dtype=np.float16) / rtg_scale
-
-            gif_images = []
-            total_rewards = np.zeros(eval_batch_size)
-            dones = np.zeros(eval_batch_size)
             case = -1
-            while case < 12:     
-                for t in range(max_test_ep_len):
+            final_rew, final_len = [], []
+            
+            while case < 24:
+                # init episode
+                running_state = env.reset()
+                # init bodies
+                flawed_rate = 0 if case < 12 else 0.25  #只测试坏损为0与0.25的情况
+                body_target = [1 for _ in range(12)]    #! 有了这一步以后其实不需要入参里的bodytarget了 后续如果要启用需要注意这里
+                if (case != -1):
+                    body_target[case%12] = flawed_rate
+                if body_mean is not None:
+                    # pdb.set_trace()
+                    body_target = (torch.tensor(body_target, dtype=torch.float32, device=device) - body_mean) / body_std
+                else:
+                    body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
 
-                    total_timesteps += 1
+
+                bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32)
+
+                # running_reward = 0
+                running_reward = torch.zeros((eval_batch_size, ),
+                                    dtype=torch.float32, device=device)
+                # running_rtg = rtg_target*np.ones((eval_batch_size,), dtype=np.float16) / rtg_scale
+
+                # gif_images = []
+                total_rewards = np.zeros(eval_batch_size)
+                total_length = np.zeros(eval_batch_size)
+                dones = np.zeros(eval_batch_size)
+                
+                    
+                #testing loop
+                for t in range(max_test_ep_len):
  
                     states[:,t,:] = running_state
                     states[:,t,:] = (states[:,t,:] - state_mean) / state_std
                     
                     # pdb.set_trace()
                     if t < context_len:
-                        if not nobody:
-                            _, act_preds, _ = model.forward(timesteps[:,:context_len],
-                                                        states[:,:context_len],
-                                                        actions[:,:context_len],
-                                                        body=bodies[:,:context_len])
-                        else:
-                            _, act_preds, _ = model.forward(timesteps[:,:context_len],
-                                                        states[:,:context_len],
-                                                        actions[:,:context_len])
+                        _, act_preds, _ = model.forward(timesteps[:,:context_len],
+                                                    states[:,:context_len],
+                                                    actions[:,:context_len],
+                                                    body=bodies[:,:context_len])
 
                         # act = act_preds[0, t].detach()
                         if prompt_policy is None:
@@ -461,39 +465,37 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
                             # act = prompt_policy(torch.tensor(running_state).unsqueeze(0)).squeeze()
                             act = prompt_policy(running_state.to(device))
                     else:
-                        if not nobody:
-                            _, act_preds, _ = model.forward(timesteps[:,t-context_len+1:t+1],
-                                                    states[:,t-context_len+1:t+1],
-                                                    actions[:,t-context_len+1:t+1],
-                                                    body=bodies[:,t-context_len+1:t+1] if not nobody else None)
-                        else:
-                            _, act_preds, _ = model.forward(timesteps[:,t-context_len+1:t+1],
-                                                    states[:,t-context_len+1:t+1],
-                                                    actions[:,t-context_len+1:t+1])
+                        _, act_preds, _ = model.forward(timesteps[:,t-context_len+1:t+1],
+                                                states[:,t-context_len+1:t+1],
+                                                actions[:,t-context_len+1:t+1],
+                                                body=bodies[:,t-context_len+1:t+1] )
                         # act = act_preds[0, -1].detach()
                         act = act_preds[:, -1].detach()
 
 
                     # running_state, running_reward, done, _ = env.step(act.cpu().numpy())
-                    running_state, running_reward, done, _ = env.step(act.cpu(), [case])
+                    running_state, running_reward, done, _ = env.step(act.cpu(), flawed_joint = [case%12], flawed_rate = 0)
  
                     actions[:, t] = act
 
                     # total_reward += running_reward
-                    total_reward += np.sum(running_reward.detach().cpu().numpy())
+                    # total_reward += np.sum(running_reward.detach().cpu().numpy())
                     total_rewards += running_reward.detach().cpu().numpy() * (dones == 0)
+                    total_length += (dones == 0)
                     dones += done.detach().cpu().numpy()
 
                     if torch.all(done):
-                        break
+                        continue
                     
+                final_rew.append(np.mean(total_rewards))
+                final_len.append(np.mean(total_length))
                 case = case + 1
-                if case == 2 or case == 5:      #跳过前腿腕关节坏损的情况
-                    case = case + 1     
+                # if case == 2 or case == 5:      #跳过前腿腕关节坏损的情况
+                #     case = case + 1     
 
     # results['eval/avg_reward'] = total_reward / num_eval_ep
-    results['eval/avg_reward'] = np.sum(total_rewards) / num_eval_ep / 11
-    results['eval/avg_ep_len'] = total_timesteps    #! 这里timestep的记录方式有点问题，无法记录中途坠毁的情况，后续需要关注一下
+    results['eval/avg_reward'] = np.mean(final_rew)*2   #降低了一半测试步数所以增加一倍rew——只是方便观看
+    results['eval/avg_ep_len'] = np.mean(final_len)*2
     
     # pdb.set_trace()
 
