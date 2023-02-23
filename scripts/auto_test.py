@@ -210,23 +210,23 @@ if __name__ == '__main__':
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [0.05, 0.3]# 更改速度设置以防命令采样到0的情况    
+    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]# 更改速度设置以防命令采样到0的情况    
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     
     #测试ppo======================================================================
-    # ppo_row_names = [0, 0.25, 0.5, 0.75]
-    # out_table = np.zeros((12,5))
-    # for i in range(12):#12条断腿情况
-    #     # for j in range (0, 0.8, 0.1):
-    #     for j in ppo_row_names:            
-    #         out_table[i, ppo_row_names.index(j)], _ = test_ppo(args, env, train_cfg, i, j)
-    # out_table[:,-1],_ = test_ppo(args, env, train_cfg, -1, 1) #测完好情况
-    # ppo_df = pd.DataFrame(out_table)
-    # ppo_df.index = codename_list
-    # ppo_df.columns = [0,0.25,0.5, 0.75, 1.0]
-    # ppo_res = ppo_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_ppo_0.05.csv"), mode='w')
+    ppo_row_names = [0, 0.25, 0.5, 0.75]
+    out_table = np.zeros((12,5))
+    for i in range(12):#12条断腿情况
+        # for j in range (0, 0.8, 0.1):
+        for j in ppo_row_names:            
+            out_table[i, ppo_row_names.index(j)], _ = test_ppo(args, env, train_cfg, i, j)
+    out_table[:,-1],_ = test_ppo(args, env, train_cfg, -1, 1) #测完好情况
+    ppo_df = pd.DataFrame(out_table)
+    ppo_df.index = codename_list
+    ppo_df.columns = [0,0.25,0.5, 0.75, 1.0]
+    ppo_res = ppo_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_sppo_.csv"), mode='w')
     # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_ppo.csv"), out_table, delimiter=',')
     #测试ppo结束===================================================================
     
