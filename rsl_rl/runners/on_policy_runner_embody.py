@@ -81,26 +81,31 @@ class OnPolicyRunner_Embody:
 
         _, _ = self.env.reset()
     
-    def flaw_generation(self, rate, bodydim = 12): # rate: the rate of env which have a flawed joint
+    def flaw_generation(self, rate, bodydim = 12, fixed_joint = -1): # rate: the rate of env which have a flawed joint
+        # import pdb
+        # pdb.set_trace()
         t = torch.rand(self.env.num_envs)
         p = torch.randint(1, bodydim+1, (self.env.num_envs,))
+        if not fixed_joint == -1:
+            p = fixed_joint + 1
         t = (t<rate) * p
         bodys = torch.ones(self.env.num_envs, bodydim)
         for i in range(self.env.num_envs):
             if t[i] > 0:
                 bodys[i][t[i]-1] = random.random()
+        print(bodys.shape)
         return bodys
 
 
 
 
-    def learn(self, num_learning_iterations, init_at_random_ep_len=False, flawed_rate = 0.4):
+    def learn(self, num_learning_iterations, init_at_random_ep_len=False, flawed_rate = 0.4, fixed_joint = -1):
         # initialize writer
         if self.log_dir is not None and self.writer is None:
             self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
         if init_at_random_ep_len:
             self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
-        bodys = self.flaw_generation(flawed_rate)  
+        bodys = self.flaw_generation(flawed_rate, fixed_joint=fixed_joint)  
         bodys = bodys.to(self.device) 
         print(bodys)         
         obs = self.env.get_observations()
@@ -162,7 +167,7 @@ class OnPolicyRunner_Embody:
                 rw = self.log(locals())
                 if rw > max_reward:
                     max_reward = rw
-                    self.save(os.path.join(self.log_dir, "best_model.pt"))
+                    self.save(os.path.join(self.log_dir, "model_1111.pt"))
 
             if it % self.save_interval == 0:
                 self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
@@ -253,7 +258,7 @@ class OnPolicyRunner_Embody:
             }, path)
 
     def load(self, path, load_optimizer=True):
-        loaded_dict = torch.load(path)
+        loaded_dict = torch.load(path, map_location=self.device)
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         if load_optimizer:
             self.alg.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])

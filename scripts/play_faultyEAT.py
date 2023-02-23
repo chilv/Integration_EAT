@@ -104,21 +104,26 @@ def play(args, faulty_tag = -1):
     #     pickle.dump(state_recorde, f)
     #=========================================================================================================
     print("loading pre_record stds,means...")
-    with open("EAT-main/data/state_recorde.pkl", 'rb') as f:
-        dict_record = pickle.load(f)
-        # 以下使用独立均值：
-        # if(faulty_tag>=5):#由于没有左前右前的踝关节故障模型 所以坏损关节标号和轨迹标号需要重新对偶
-        #     the_tag = faulty_tag - 2
-        # elif(faulty_tag >= 2):
-        #     the_tag = faulty_tag - 1
-        # else:
-        #     the_tag = faulty_tag
-        # the_record = dict_record[file_list[the_tag + 1][:-4]]    #faulty_tag + 1是由于 -1代表着完好的机器狗，和file_list的储存方式错开一位
-        # 以下使用全局均值(optional)：
-        the_record = dict_record["total"]
+    # with open("EAT-main/data/state_recorde.pkl", 'rb') as f:
+    #     dict_record = pickle.load(f)
+    #     # 以下使用独立均值：
+    #     # if(faulty_tag>=5):#由于没有左前右前的踝关节故障模型 所以坏损关节标号和轨迹标号需要重新对偶
+    #     #     the_tag = faulty_tag - 2
+    #     # elif(faulty_tag >= 2):
+    #     #     the_tag = faulty_tag - 1
+    #     # else:
+    #     #     the_tag = faulty_tag
+    #     # the_record = dict_record[file_list[the_tag + 1][:-4]]    #faulty_tag + 1是由于 -1代表着完好的机器狗，和file_list的储存方式错开一位
+    #     # 以下使用全局均值(optional)：
+    #     the_record = dict_record["total"]
         
-        state_mean, state_std, body_mean, body_std = the_record["state_mean"],the_record["state_std"],the_record["body_mean"],the_record["body_std"]
-        
+    #     state_mean, state_std, body_mean, body_std = the_record["state_mean"],the_record["state_std"],the_record["body_mean"],the_record["body_std"]
+    save_model_path = "/NAS2020/Workspaces/DRLGroup/wentaodong/Integration_EAT/EAT_runs/EAT_FID2341_01/model"
+    state_mean = np.load(f"{save_model_path}.state_mean.npy")
+    state_std = np.load(f"{save_model_path}.state_std.npy")
+    body_mean = np.load(f"{save_model_path}.body_mean.npy")
+    body_std = np.load(f"{save_model_path}.body_std.npy")
+
 
     #======================================================================
     #prepare envs
@@ -157,7 +162,7 @@ def play(args, faulty_tag = -1):
             body_std=body_std
             ).to(device)
     model.load_state_dict(torch.load(
-        "/NAS2020/Workspaces/DRLGroup/wuxinyuan/leggedrobots/EAT-main/dt_runs/EAT_FID2341_26/model_best.pt"
+        "/NAS2020/Workspaces/DRLGroup/wentaodong/Integration_EAT/EAT_runs/EAT_FID2341_01/model_best.pt"
     ))
     model.eval()
     #====================================================================================
@@ -251,14 +256,14 @@ def play(args, faulty_tag = -1):
                     # running_state, _, running_reward, done, infos = env.step(act, [-1])
                 
                 
-                if RECORD_FRAMES:
-                    if t % 2:
-                        filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames', f"{img_idx}.png")
-                        env.gym.write_viewer_image_to_file(env.viewer, filename) 
-                        img_idx += 1 
-                if MOVE_CAMERA: #TODO: 这里可以设定视角变换，后续学习一下
-                    camera_position += camera_vel * env.dt
-                    env.set_camera(camera_position, camera_position + camera_direction)
+                # if RECORD_FRAMES:
+                #     if t % 2:
+                #         filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames', f"{img_idx}.png")
+                #         env.gym.write_viewer_image_to_file(env.viewer, filename) 
+                #         img_idx += 1 
+                # if MOVE_CAMERA: #TODO: 这里可以设定视角变换，后续学习一下
+                #     camera_position += camera_vel * env.dt
+                #     env.set_camera(camera_position, camera_position + camera_direction)
             
                 actions[:, t] = act
 

@@ -292,7 +292,7 @@ class LeggedRobotCfgPPOEmbody(BaseConfig):
         policy_class_name = 'ActorCritic_Embody'
         algorithm_class_name = 'ePPO'
         num_steps_per_env = 24 # per iteration
-        max_iterations = 50000 # number of policy updates
+        max_iterations = 10000 # number of policy updates
 
         # logging
         save_interval = 1000 # check for potential saves every this many iterations
