@@ -791,9 +791,9 @@ class D4RLTrajectoryDataset(Dataset):
         for traj in self.trajectories:
             traj['observations'] = (traj['observations'] - self.state_mean) / self.state_std
 
-        if leg_trans_pro:
-            self.body_mean, self.body_std = np.mean(bodies, axis=0), np.std(bodies, axis=0) + 1e-6
-            traj['returns_to_go'] = (traj['returns_to_go'] - self.body_mean) / self.body_std
+        # if leg_trans_pro:
+            # self.body_mean, self.body_std = np.mean(bodies, axis=0), np.std(bodies, axis=0) + 1e-6
+            # traj['returns_to_go'] = (traj['returns_to_go'] - self.body_mean) / self.body_std
 
 
     def get_state_stats(self, body=False):
