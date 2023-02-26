@@ -382,17 +382,17 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
     else:
         state_std = state_std.to(device)
 
-    if body_mean is not None:
-        if not torch.is_tensor(body_mean):
-            body_mean = torch.from_numpy(body_mean).to(device)
-        else:
-            body_mean = body_mean.to(device)
+    # if body_mean is not None:
+    #     if not torch.is_tensor(body_mean):
+    #         body_mean = torch.from_numpy(body_mean).to(device)
+    #     else:
+    #         body_mean = body_mean.to(device)
 
-    if body_std is not None:
-        if not torch.is_tensor(body_std):
-            body_std = torch.from_numpy(body_std).to(device)
-        else:
-            body_std = body_std.to(device)
+    # if body_std is not None:
+    #     if not torch.is_tensor(body_std):
+    #         body_std = torch.from_numpy(body_std).to(device)
+    #     else:
+    #         body_std = body_std.to(device)
 
     # same as timesteps used for training the transformer
     # also, crashes if device is passed to arange()
@@ -705,7 +705,7 @@ class D4RLTrajectoryDataset(Dataset):
 
         if leg_trans_pro:
             self.body_mean, self.body_std = np.mean(bodies, axis=0), np.std(bodies, axis=0) + 1e-6
-            traj['returns_to_go'] = (traj['returns_to_go'] - self.body_mean) / self.body_std
+            # traj['returns_to_go'] = (traj['returns_to_go'] - self.body_mean) / self.body_std
 
 
     def get_state_stats(self, body=False):
@@ -815,7 +815,7 @@ class D4RLTrajectoryDatasetForTert(Dataset):
 
         if leg_trans_pro:
             self.body_mean, self.body_std = np.mean(bodies, axis=0), np.std(bodies, axis=0) + 1e-6
-            traj['returns_to_go'] = (traj['returns_to_go'] - self.body_mean) / self.body_std
+            # traj['returns_to_go'] = (traj['returns_to_go'] - self.body_mean) / self.body_std
 
 
     def get_state_stats(self, body=False):

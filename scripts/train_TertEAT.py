@@ -52,8 +52,18 @@ def train(args):
     os.makedirs(os.path.join(log_dir, model_file_name))
     save_model_path = os.path.join(log_dir, model_file_name, "model")
 
+    # init log parts
     with open(os.path.join(log_dir, model_file_name, "note.txt"), 'w') as f:
         f.write(args.note)
+    log_csv_path = os.path.join(log_dir, model_file_name, "log.csv")
+
+    csv_writer = csv.writer(open(log_csv_path, 'a', 1))
+    csv_header = (["duration", "num_updates", "action_loss",
+                   "eval_avg_reward", "eval_avg_ep_len", "eval_d4rl_score"])
+
+    csv_writer.writerow(csv_header)
+    
+    wandb.init(config=config, project="my_Tert_test", name=model_file_name, mode="online" if not args.wandboff else "disabled", notes=args.note)
     
     datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("TertEAT1024")
     
@@ -71,8 +81,6 @@ def train(args):
     config["dataset path"] = str(dataset_path_list)
     config["model save path"] = save_model_path+".pt"
     # config["log csv save path"] = log_csv_path
-
-    wandb.init(config=config, project="my_Tert_test", name=model_file_name, mode="online" if not args.wandboff else "disabled", notes=args.note)
     
     #preparing env=============================================================================
     max_eval_ep_len = args.max_eval_ep_len  # max len of one episode
@@ -111,7 +119,8 @@ def train(args):
 
     traj_dataset = D4RLTrajectoryDatasetForTert(big_list, context_len, leg_trans_pro=True)
     
-    state_mean, state_std, body_mean, body_std = traj_dataset.get_state_stats(body=True)
+    # state_mean, state_std, body_mean, body_std = traj_dataset.get_state_stats(body=True)
+    state_mean, state_std = traj_dataset.get_state_stats(body=False)
     
     # else:   #当轨迹过多时进行拆分
     #     dataset_list, state_mean_list, state_std_list, body_mean_list, body_std_list, xn = [],[],[],[],[],[]
@@ -149,13 +158,13 @@ def train(args):
     
     np.save(f"{save_model_path}.state_mean", state_mean)
     np.save(f"{save_model_path}.state_std", state_std)
-    np.save(f"{save_model_path}.body_mean", body_mean)
-    np.save(f"{save_model_path}.body_std", body_std)
+    # np.save(f"{save_model_path}.body_mean", body_mean)
+    # np.save(f"{save_model_path}.body_std", body_std)
     
     state_mean = torch.from_numpy(state_mean).to(device)
     state_std = torch.from_numpy(state_std).to(device)
-    body_mean = torch.from_numpy(body_mean).to(device)
-    body_std = torch.from_numpy(body_std).to(device)
+    # body_mean = torch.from_numpy(body_mean).to(device)
+    # body_std = torch.from_numpy(body_std).to(device)
 
 
     #loading EAT model=============================================================================
@@ -187,8 +196,8 @@ def train(args):
             drop_p=dropout_p,
             state_mean=state_mean,
             state_std=state_std,
-            body_mean=body_mean,
-            body_std=body_std
+            # body_mean=body_mean,
+            # body_std=body_std
             ).to(device)
     EAT_model.load_state_dict(torch.load(
         os.path.join(model_path,"model_best.pt")
@@ -223,7 +232,7 @@ def train(args):
     print("device set to: " + str(device))
     print("dataset path: " + str(dataset_path_list))
     print("model save path: " + save_model_path+".pt (.jit)")
-    # print("log csv save path: " + log_csv_path)    
+    print("log csv save path: " + log_csv_path)    
 
     max_d4rl_score = -1.0
     total_updates = 0
@@ -289,7 +298,7 @@ def train(args):
             # evaluate action accuracy
 
             results = evaluate_on_env_batch_body(EAT_model, device, context_len, env, eval_body_vec, 1,
-                                                num_eval_ep, max_eval_ep_len, state_mean, state_std, body_mean, body_std, nobody=args.nobody)
+                                                num_eval_ep, max_eval_ep_len, state_mean, state_std)
 
         
             eval_avg_reward = results['eval/avg_reward']
@@ -322,7 +331,7 @@ def train(args):
                         eval_avg_reward, eval_avg_ep_len,
                         eval_d4rl_score]
 
-            # csv_writer.writerow(log_data)
+            csv_writer.writerow(log_data)
 
             # save model
             if eval_d4rl_score >= max_d4rl_score:
