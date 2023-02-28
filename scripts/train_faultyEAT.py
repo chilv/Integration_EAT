@@ -6,16 +6,16 @@ import inspect
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
 os.sys.path.insert(0, parentdir)
+os.sys.path.insert(0, os.path.dirname(parentdir))
 import random
 import csv
 from datetime import datetime
-
 import copy
 import math
 import numpy as np
 
 from legged_gym.envs import *
-
+from legged_gym.utils import get_args
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -23,9 +23,9 @@ from torch.utils.data import DataLoader
 from utils import D4RLTrajectoryDataset, evaluate_on_env,  evaluate_on_env_batch_body, get_dataset_config #, get_d4rl_normalized_score,
 from model import DecisionTransformer, LeggedTransformer, LeggedTransformerPro, MLPBCModel
 import wandb
-from singlea1 import A1
+# from singlea1 import A1
 # from a1wrapper import A1
-
+from legged_gym.utils.task_registry_embody import task_registry
 from tqdm import trange, tqdm
 
 def partial_traj(dataset_path_list, context_len=20, rtg_scale=1000, body_dim=12):
@@ -107,11 +107,10 @@ def train(args):
     dropout_p = args.dropout_p          # dropout probability
 
 
-    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("continue1000_faultypro")
+    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("IPPO")
     
     # file_list = [f"a1magic{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
-    file_list = [f"before20230223/{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
-    # file_list = [f"{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
+    file_list = [os.path.join(datafile, f"{i_magic}.pkl") for i_magic in i_magic_list]
     dataset_path_list_raw = [os.path.join(args.dataset_dir, d) for d in file_list]
     dataset_path_list = []
     for p in dataset_path_list_raw:
@@ -121,7 +120,17 @@ def train(args):
             print(p, " doesn't exist~")
 
     # env = A1(num_envs=args.num_eval_ep, robot=eval_env, noise=args.noise)
-    env = A1(num_envs=args.num_eval_ep, noise=args.noise)#这里eval_env编译不通过，因为注册表中没有该环境，暂时跳过试一下
+    env_args = get_args()
+
+    env_cfg, train_cfg = task_registry.get_cfgs(name =env_args.task)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, args.num_eval_ep)
+    env_cfg.terrain.curriculum = False
+    env_cfg.noise.add_noise = False
+    env_cfg.domain_rand.randomize_friction = False
+    env_cfg.domain_rand.push_robots = False
+    env_cfg.commands.ranges.lin_vel_x = [0.5, 0.5]
+    env, _ = task_registry.make_env(name = args.task, args = env_args, env_cfg = env_cfg)
+    # env = A1(num_envs=args.num_eval_ep, noise=args.noise)#这里eval_env编译不通过，因为注册表中没有该环境，暂时跳过试一下
     
     # saves model and csv in this directory
     log_dir = args.log_dir
@@ -225,6 +234,8 @@ def train(args):
     
     np.save(f"{save_model_path}.state_mean", state_mean)
     np.save(f"{save_model_path}.state_std", state_std)
+    # np.save(f"{save_model_path}.body_mean", body_mean)
+    # np.save(f"{save_model_path}.body_std", body_std)
     #---------------------------------------------------------------------------------------------------------------------------
     # if slices == 0:
     print("model preparing")
@@ -278,7 +289,8 @@ def train(args):
 
     # global_train_step = 0
     inner_bar = tqdm(range(num_updates_per_iter), leave = False)
-
+    state_mean = model.state_mean.to(device)
+    state_std = model.state_std.to(device)
     for epoch in trange(n_epochs):
         # pdb.set_trace()
 
@@ -290,6 +302,9 @@ def train(args):
 
             timesteps = timesteps.to(device)    # B x T
             states = states.to(device)          # B x T x state_dim
+
+            # states = (states - state_mean)/state_std
+
             actions = actions.to(device)        # B x T x act_dim
             # returns_to_go = returns_to_go.to(device).unsqueeze(dim=-1) # B x T x 1
             body = body.to(device).type(actions.dtype) # B x T x body_dim
@@ -343,7 +358,7 @@ def train(args):
             # evaluate action accuracy
 
             results = evaluate_on_env_batch_body(model, device, context_len, env, eval_body_vec, 1,
-                                                num_eval_ep, max_eval_ep_len, state_mean, state_std, None, None, nobody=args.nobody)
+                                                num_eval_ep, max_eval_ep_len, state_mean, state_std, nobody=args.nobody)
 
         
             eval_avg_reward = results['eval/avg_reward']
@@ -450,10 +465,10 @@ if __name__ == "__main__":
 
     parser.add_argument('--device', type=str, default='cuda:1')
     parser.add_argument('--note', type=str, default='')
-    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--seed', type=int, default=66)
 
     # args = parser.parse_args()
     args, unknown = parser.parse_known_args()
-    # args.wandboff = True
-    
+
+    # args.wandboff = True    #当无法连接wandb时使用
     train(args)

@@ -197,14 +197,14 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
                     # running_state, _, running_reward, done, infos = env.step(act, [-1])
                 
                 
-                if RECORD_FRAMES:
-                    if t % 2:
-                        filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames', f"{img_idx}.png")
-                        env.gym.write_viewer_image_to_file(env.viewer, filename) 
-                        img_idx += 1 
-                if MOVE_CAMERA: #TODO: 这里可以设定视角变换，后续学习一下
-                    camera_position += camera_vel * env.dt
-                    env.set_camera(camera_position, camera_position + camera_direction)
+                # if RECORD_FRAMES:
+                #     if t % 2:
+                #         filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames', f"{img_idx}.png")
+                #         env.gym.write_viewer_image_to_file(env.viewer, filename) 
+                #         img_idx += 1 
+                # if MOVE_CAMERA: #TODO: 这里可以设定视角变换，后续学习一下
+                #     camera_position += camera_vel * env.dt
+                #     env.set_camera(camera_position, camera_position + camera_direction)
             
                 actions[:, t] = act
 

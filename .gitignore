@@ -11,3 +11,8 @@
 /Tert_runs/
 #一些过程文件
 *.pyc
+
+*.DS_Store
+
+/EAT_runs/
+/Models

@@ -187,6 +187,8 @@ def get_args():
             "help": "Maximum number of training iterations. Overrides config file if provided."},
         {"name": "--algorithm_name", "type": str, "default": "mat",
             "help": "."},
+        {"name": "--joint", "type": int,},
+        {"name": "--rate_idx", "type":int},
         # parser.add_argument("--n_training_threads", type=int,
         #                 default=1, help="Number of torch threads for training")
     ]

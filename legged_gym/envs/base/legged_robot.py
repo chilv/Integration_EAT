@@ -78,13 +78,12 @@ class LeggedRobot(BaseTask):
 
         self.action_scale = self.cfg.control.action_scale
 
-    def step(self, actions, flawed_joint = [-1], flawed_rate = 1):
+    def step(self, actions, embodys = None):
         """ Apply actions, simulate, call self.post_physics_step()
 
         Args:
             actions (torch.Tensor): Tensor of shape (num_envs, num_actions_per_env)
-            flawed_joint (list): list of flawed joint index(0~11 -1 means flawless)
-            
+            embodys (torch.Tensor): Tensor of embody which shows the flawed joint and flawrate (num_envs, body_dim)
         """
         clip_actions = self.cfg.normalization.clip_actions
         self.actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device)
@@ -93,9 +92,13 @@ class LeggedRobot(BaseTask):
         self.last_torques = self.torques
         for _ in range(self.cfg.control.decimation):
             self.torques = self._compute_torques(self.actions).view(self.torques.shape)
+            if embodys is not None:
+                self.torques = self.torques.mul(embodys)
             #!-----这里用作设置关节失力的情况
-            if not -1 in flawed_joint:
-                self.torques[:,flawed_joint] = self.torques[:,flawed_joint] * flawed_rate
+            # if not -1 in flawed_joint:
+                # self.torques[:,flawed_joint] = self.torques[:,flawed_joint] * flawed_rate
+                # self.torques[:,flawed_joint] = torch.min(self.torques[:,flawed_joint], torch.ones_like(self.torques)[:,flawed_joint] * flawed_rate)  ## 这里改成了阈值而不是比例。
+
             # self.torques[:,9:12] = 0 #某条退全部失力
             # self.torques[:,6] = 0 #臀部关节失力
             # self.torques[:,7] = 0 #膝部关节失力
@@ -748,8 +751,7 @@ class LeggedRobot(BaseTask):
         if self.cfg.terrain.mesh_type not in ['heightfield', 'trimesh']:
             self.cfg.terrain.curriculum = False
         self.max_episode_length_s = self.cfg.env.episode_length_s
-        # self.max_episode_length = np.ceil(self.max_episode_length_s / self.dt)    这一部分向上取整会导致最大时间步长度取到1001，导致EAT assert失败
-        self.max_episode_length = np.around(self.max_episode_length_s / self.dt)    #! 故采用四舍五入替代上式
+        self.max_episode_length = np.ceil(self.max_episode_length_s / self.dt)
 
         self.cfg.domain_rand.push_interval = np.ceil(self.cfg.domain_rand.push_interval_s / self.dt)
 
