@@ -369,7 +369,7 @@ def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=1, d
         t = torch.ones((num_envs, len(fixed_joint)), dtype=int) * torch.tensor(fixed_joint)
     bodys = torch.ones(num_envs, bodydim).to(device)
     for i in range(num_envs):
-        for joint in t[i]:
+        for joint in [t[i]]:
             bodys[i, joint] = random.random() if flawed_rate == -1 else flawed_rate
     return bodys, t
 
