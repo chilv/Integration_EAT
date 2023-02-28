@@ -48,7 +48,7 @@ import torch
 
 from tqdm import trange, tqdm
 
-NUM_ENVS = 4000 #10000 # 400 #4000 #1000 # 50# 20000 #
+NUM_ENVS = 10000 #10000 # 400 #4000 #1000 # 50# 20000 #
 REP = 1 #10 #20
 ZERO_VEL = False
 VEL_TO_ACC = False
@@ -97,7 +97,7 @@ def play(args, env, train_cfg, fault_type = "none", fault_rate = 1):
 		model_root = os.path.join(model_root, str(fault_rate) + "_torques")
 		#判断模型文件是否存在 若不存在则报错弹出
 		if not os.path.exists(os.path.join(model_root,train_cfg.runner.load_run)):
-			print(f"no model file{fault_type}_{fault_rate}")
+			print(f"no model file {fault_type}_{fault_rate}")
 			return fault_type + "_" + str(fault_rate) + " file not exists"
 	ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg, log_root=model_root)
 	policy = ppo_runner.get_inference_policy(device=env.device)
@@ -296,9 +296,11 @@ if __name__ == '__main__':
 	env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
 	failed_set = set()
 	#采集所有坏关节情况的数据
-	for name in codename_list:
-		for rate in rate_list:
-			failed_set.add(play(args, env, train_cfg, name, rate))
-	play(args, env, train_cfg)	#采集四条腿都能用的机器狗的数据
-	# play(args, env, train_cfg, "RBK", 0)
+	# for name in codename_list:
+	# 	for rate in rate_list:
+	# 		failed_set.add(play(args, env, train_cfg, name, rate))
+	# for name in ["LBA", "RBA", "LFA"]:
+	# 	failed_set.add(play(args, env, train_cfg, name, 0))
+	# play(args, env, train_cfg)	#采集四条腿都能用的机器狗的数据
+	play(args, env, train_cfg, "LFA", 0)
 	print(failed_set)

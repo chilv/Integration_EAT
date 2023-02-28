@@ -86,8 +86,8 @@ def train(args):
     body_dim = 12
     ##-----
 
-    max_eval_ep_len = 500  # max len of one episode
-    # max_eval_ep_len = args.max_eval_ep_len  # max len of one episode
+    # max_eval_ep_len = 500  # max len of one episode
+    max_eval_ep_len = args.max_eval_ep_len  # max len of one episode
     num_eval_ep = args.num_eval_ep          # num of evaluation episodes
 
     batch_size = args.batch_size            # training batch size
@@ -107,10 +107,11 @@ def train(args):
     dropout_p = args.dropout_p          # dropout probability
 
 
-    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("continue1000_faulty")
+    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("continue1000_faultypro")
     
     # file_list = [f"a1magic{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
-    file_list = [f"{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
+    file_list = [f"before20230223/{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
+    # file_list = [f"{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
     dataset_path_list_raw = [os.path.join(args.dataset_dir, d) for d in file_list]
     dataset_path_list = []
     for p in dataset_path_list_raw:
@@ -224,8 +225,6 @@ def train(args):
     
     np.save(f"{save_model_path}.state_mean", state_mean)
     np.save(f"{save_model_path}.state_std", state_std)
-    # np.save(f"{save_model_path}.body_mean", body_mean)
-    # np.save(f"{save_model_path}.body_std", body_std)
     #---------------------------------------------------------------------------------------------------------------------------
     # if slices == 0:
     print("model preparing")
@@ -352,7 +351,6 @@ def train(args):
             eval_d4rl_score = results['eval/avg_reward']
             # eval_avg_reward = eval_avg_ep_len = eval_d4rl_score = 1000
             
-
             mean_action_loss = np.mean(log_action_losses)
             time_elapsed = str(datetime.now().replace(microsecond=0) - start_time)
 
@@ -426,16 +424,16 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='flawedppo')
 
     parser.add_argument('--max_eval_ep_len', type=int, default=1000)
-    parser.add_argument('--num_eval_ep', type=int, default=100)
+    parser.add_argument('--num_eval_ep', type=int, default=10)
     parser.add_argument('--noise', type=int, help="noisy environemnt for evaluation", default=0)
 
     parser.add_argument('--dataset_dir', type=str, default='Integration_EAT/data/')
     parser.add_argument('--log_dir', type=str, default='Integration_EAT/EAT_runs/')
     parser.add_argument('--cut', type=int, default=0)
 
-    parser.add_argument('--context_len', type=int, default=50)  #50 试一下
+    parser.add_argument('--context_len', type=int, default=20)  #50 试一下
     parser.add_argument('--n_blocks', type=int, default=6)
-    parser.add_argument('--embed_dim', type=int, default=256)   #! 试图修改transformer规模
+    parser.add_argument('--embed_dim', type=int, default=128)   #! 试图修改transformer规模
     parser.add_argument('--n_heads', type=int, default=1)
     parser.add_argument('--dropout_p', type=float, default=0.1)
 
@@ -450,7 +448,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--wandboff', default=False, action='store_true', help="Disable wandb")
 
-    parser.add_argument('--device', type=str, default='cuda:0')
+    parser.add_argument('--device', type=str, default='cuda:1')
     parser.add_argument('--note', type=str, default='')
     parser.add_argument('--seed', type=int, default=0)
 

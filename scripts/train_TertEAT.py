@@ -62,9 +62,7 @@ def train(args):
                    "eval_avg_reward", "eval_avg_ep_len", "eval_d4rl_score"])
 
     csv_writer.writerow(csv_header)
-    
-    wandb.init(config=config, project="my_Tert_test", name=model_file_name, mode="online" if not args.wandboff else "disabled", notes=args.note)
-    
+        
     datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("TertEAT1024")
     
     # file_list = [f"a1magic{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
@@ -81,6 +79,8 @@ def train(args):
     config["dataset path"] = str(dataset_path_list)
     config["model save path"] = save_model_path+".pt"
     # config["log csv save path"] = log_csv_path
+    wandb.init(config=config, project="my_Tert_test", name=model_file_name, mode="online" if not args.wandboff else "disabled", notes=args.note)
+    
     
     #preparing env=============================================================================
     max_eval_ep_len = args.max_eval_ep_len  # max len of one episode
@@ -120,7 +120,7 @@ def train(args):
     traj_dataset = D4RLTrajectoryDatasetForTert(big_list, context_len, leg_trans_pro=True)
     
     # state_mean, state_std, body_mean, body_std = traj_dataset.get_state_stats(body=True)
-    state_mean, state_std = traj_dataset.get_state_stats(body=False)
+    # state_mean, state_std = traj_dataset.get_state_stats(body=False)
     
     # else:   #当轨迹过多时进行拆分
     #     dataset_list, state_mean_list, state_std_list, body_mean_list, body_std_list, xn = [],[],[],[],[],[]
@@ -155,25 +155,15 @@ def train(args):
     print("DataLoader complete!")
     n_epochs = int(1e6 / len(traj_data_loader) * args.n_epochs_ref)
     num_updates_per_iter = len(traj_data_loader)
-    
-    np.save(f"{save_model_path}.state_mean", state_mean)
-    np.save(f"{save_model_path}.state_std", state_std)
-    # np.save(f"{save_model_path}.body_mean", body_mean)
-    # np.save(f"{save_model_path}.body_std", body_std)
-    
-    state_mean = torch.from_numpy(state_mean).to(device)
-    state_std = torch.from_numpy(state_std).to(device)
-    # body_mean = torch.from_numpy(body_mean).to(device)
-    # body_std = torch.from_numpy(body_std).to(device)
-
 
     #loading EAT model=============================================================================
     # loading pre_record stds,means...
     model_path = os.path.join(parentdir, MODEL_PATH)
+    state_mean, state_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
+    state_mean = torch.from_numpy(state_mean).to(device)
+    state_std = torch.from_numpy(state_std).to(device)
+    
     # loading EAT model
-    eval_batch_size = NUM_ENVS  # envs
-    max_test_ep_len = 1000    	#iters
-
     state_dim = 48
     act_dim = 12
     body_dim = 12	

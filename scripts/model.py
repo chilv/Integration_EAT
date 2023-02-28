@@ -302,9 +302,10 @@ class LeggedTransformerPro(nn.Module):
 
         self.state_mean = torch.tensor(state_mean)
         self.state_std = torch.tensor(state_std)
-
-        self.body_mean = torch.tensor(body_mean)
-        self.body_std = torch.tensor(body_std)
+        
+        if body_mean is not None:
+            self.body_mean = torch.tensor(body_mean)
+            self.body_std = torch.tensor(body_std)
 
 
     def forward(self, timesteps, states, actions, body):

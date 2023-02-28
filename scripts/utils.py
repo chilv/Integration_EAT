@@ -417,7 +417,7 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
             case = -1
             final_rew, final_len = [], []
             
-            while case < 24:
+            while case < 12:    #24
                 # init episode
                 running_state = env.reset()
                 # init bodies
@@ -494,8 +494,8 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
                 #     case = case + 1     
 
     # results['eval/avg_reward'] = total_reward / num_eval_ep
-    results['eval/avg_reward'] = np.mean(final_rew)*2   #降低了一半测试步数所以增加一倍rew——只是方便观看
-    results['eval/avg_ep_len'] = np.mean(final_len)*2
+    results['eval/avg_reward'] = np.mean(final_rew)#*2   #降低了一半测试步数所以增加一倍rew——只是方便观看
+    results['eval/avg_ep_len'] = np.mean(final_len)#*2
     
     # pdb.set_trace()
 
@@ -944,7 +944,7 @@ def get_dataset_config(dataset):
         for name in ["LFH", "LFK", "LFA", "RFH", "RFK", "RFA", "LBH", "LBK", "LBA", "RBH", "RBK", "RBA"]:
             # for rate in [0, 0.25]:
             for rate in [0, 0.25, 0.5, 0.75]:
-                i_magic_list.append(f"{name}-{rate}")
+                i_magic_list.append(f"{name}-00")
         eval_body_vec = [1 for _ in range(12)]
         
     if dataset == "continue1000_faulty":    #包含连续torques表现不好的情况但数据量更少（不需要切分可以直接学
@@ -956,6 +956,28 @@ def get_dataset_config(dataset):
                 i_magic_list.append(f"{name}-{rate}")
         eval_body_vec = [1 for _ in range(12)]
         
+    if dataset == "continue1000_faultypro":    #包含连续torques表现不好的情况但数据量更少的情况并且掺入大量0力矩的情况
+        datafile = "F1000-v0"
+        i_magic_list = ["none-1"]
+        for name in ["LFH", "LFK", "LFA", "RFH", "RFK", "RFA", "LBH", "LBK", "LBA", "RBH", "RBK", "RBA"]:
+            # for rate in [0, 0.25]:
+            for rate in [0, 0.25, 0.5, 0.75]:
+                i_magic_list.append(f"{name}-{rate}")
+        for name in ["LFA+", "RFA+", "RBA+", "LBA+"]:
+            i_magic_list.append(f"{name}-0")
+        eval_body_vec = [1 for _ in range(12)]
+        
+    if dataset == "continue1000_mix":    #包含连续torques表现不好的情况但数据量更少的情况并且掺入大量0力矩的情况
+        datafile = "F1000-v0"
+        i_magic_list = ["none-1"]
+        for name in ["LFH", "LFK", "LFA", "RFH", "RFK", "RFA", "LBH", "LBK", "LBA", "RBH", "RBK", "RBA"]:
+            # for rate in [0, 0.25]:
+            for rate in [0, 0.25, 0.5, 0.75]:
+                i_magic_list.append(f"{name}-{rate}")
+        for name in ["LFAI", "RFAI", "RBAI", "LBAI"]:
+            i_magic_list.append(f"{name}-0")
+        eval_body_vec = [1 for _ in range(12)]
+        
     if dataset == "TertEAT1024":    #Tert的情况
         datafile = "F1024-v0"
         i_magic_list = ["none-1"]
@@ -964,6 +986,7 @@ def get_dataset_config(dataset):
                 i_magic_list.append(f"{name}-{rate}")
         eval_body_vec = [1 for _ in range(12)]
         
+    #================================================================================
     if dataset == "top1000":
         datafile = "1000outof10000-vel0.5-v0"
         i_magic_list = ["none", "LFH", "LFK", "RFH", "RFK", "LBH", "LBK", "LBA", "RBH", "RBK", "RBA"]

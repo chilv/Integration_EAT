@@ -53,16 +53,17 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     act_dim = 12
     body_dim = 12
 
-    context_len = 20      # K in decision transformer
+    context_len = 50      # K in decision transformer
     n_blocks = 6            # num of transformer blocks
-    embed_dim = 128          # embedding (hidden) dim of transformer #! 原值128 #512
+    embed_dim = 256          # embedding (hidden) dim of transformer #! 原值128 #512
     n_heads = 1              # num of transformer heads
     dropout_p = 0.1          # dropout probability
 
     print("loading pre_record stds,means...")
-    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO/")
+    model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_08/")
     # model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
-    state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
+    state_mean, state_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
+    # state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
 
     #======================================================================
     #prepare envs
@@ -97,8 +98,8 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
             drop_p=dropout_p,
             state_mean=state_mean,
             state_std=state_std,
-            body_mean=body_mean,
-            body_std=body_std
+            # body_mean=body_mean,
+            # body_std=body_std
             ).to(device)
     model.load_state_dict(torch.load(
         os.path.join(model_path,"model_best.pt")
@@ -131,8 +132,8 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     body_dim = len(body_target)
     state_mean = torch.from_numpy(state_mean).to(device)
     state_std = torch.from_numpy(state_std).to(device)
-    body_mean = torch.from_numpy(body_mean).to(device)
-    body_std = torch.from_numpy(body_std).to(device)
+    # body_mean = torch.from_numpy(body_mean).to(device)
+    # body_std = torch.from_numpy(body_std).to(device)
     
     timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
     timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
@@ -145,7 +146,8 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
             states = torch.zeros((eval_batch_size, max_test_ep_len, state_dim),
                                 dtype=torch.float32, device=device)
 
-            body_target = (torch.tensor(body_target, dtype=torch.float32, device=device) - body_mean) / body_std
+            body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
+            # body_target = (torch.tensor(body_target, dtype=torch.float32, device=device) - body_mean) / body_std
             bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32)
 
             # init episode
@@ -261,4 +263,4 @@ if __name__ == "__main__":
     
     RECORD_FRAMES = False
     MOVE_CAMERA = False
-    play(args, 2, 0)
+    play(args, 8, 0.25)
