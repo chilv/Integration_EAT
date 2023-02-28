@@ -121,8 +121,8 @@ def play(args, faulty_tag = -1):
     save_model_path = "/NAS2020/Workspaces/DRLGroup/wentaodong/Integration_EAT/EAT_runs/EAT_FID2341_01/model"
     state_mean = np.load(f"{save_model_path}.state_mean.npy")
     state_std = np.load(f"{save_model_path}.state_std.npy")
-    body_mean = np.load(f"{save_model_path}.body_mean.npy")
-    body_std = np.load(f"{save_model_path}.body_std.npy")
+    # body_mean = np.load(f"{save_model_path}.body_mean.npy")
+    # body_std = np.load(f"{save_model_path}.body_std.npy")
 
 
     #======================================================================
@@ -158,12 +158,12 @@ def play(args, faulty_tag = -1):
             drop_p=dropout_p,
             state_mean=state_mean,
             state_std=state_std,
-            body_mean=body_mean,
-            body_std=body_std
+            # body_mean=body_mean,
+            # body_std=body_std
             ).to(device)
     model.load_state_dict(torch.load(
-        "/NAS2020/Workspaces/DRLGroup/wentaodong/Integration_EAT/EAT_runs/EAT_FID2341_01/model_best.pt"
-    ))
+        "/NAS2020/Workspaces/DRLGroup/wentaodong/Integration_EAT/EAT_runs/EAT_IPPO2_01/model_best.pt"
+    , map_location=device))
     model.eval()
     #====================================================================================
     
@@ -192,8 +192,8 @@ def play(args, faulty_tag = -1):
     body_dim = len(body_target)
     state_mean = torch.from_numpy(state_mean).to(device)
     state_std = torch.from_numpy(state_std).to(device)
-    body_mean = torch.from_numpy(body_mean).to(device)
-    body_std = torch.from_numpy(body_std).to(device)
+    # body_mean = torch.from_numpy(body_mean).to(device)
+    # body_std = torch.from_numpy(body_std).to(device)
     
     timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
     timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
@@ -206,7 +206,7 @@ def play(args, faulty_tag = -1):
             states = torch.zeros((eval_batch_size, max_test_ep_len, state_dim),
                                 dtype=torch.float32, device=device)
 
-            body_target = (torch.tensor(body_target, dtype=torch.float32, device=device) - body_mean) / body_std
+            body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
             bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32)
 
             # init episode

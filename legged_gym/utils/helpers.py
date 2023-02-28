@@ -189,6 +189,8 @@ def get_args():
             "help": "."},
         {"name": "--joint", "type": int,},
         {"name": "--rate_idx", "type":int},
+        {"name": "--not_use_body_norm", "action": "store_true",
+            "default": False},
         # parser.add_argument("--n_training_threads", type=int,
         #                 default=1, help="Number of torch threads for training")
     ]

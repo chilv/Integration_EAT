@@ -96,7 +96,7 @@ def flaw_generation(num_envs, rate=1, bodydim = 12, fixed_joint = -1): # rate: t
 	print(bodys.shape)
 	return bodys
 
-def flaw(bodys, joint, rate = 0.004): #each joint has a flaw rate to be partial of itself.
+def flaw(bodys, joint, rate = 0.004, threshold = 0.4, descend = 0.005): #each joint has a flaw rate to be partial of itself.
 	num_envs = bodys.shape[0]
 	t = torch.rand(num_envs)
 	import random
@@ -105,6 +105,9 @@ def flaw(bodys, joint, rate = 0.004): #each joint has a flaw rate to be partial 
 	t = t.to(bodys.device)
 	# print(t.shape)
 	bodys[:, joint] *= t
+	for i in range(num_envs):
+		if bodys[i,joint] > threshold:
+			bodys[i,joint] -= descend
 	# print(bodys[:10,:])
 	return bodys
 
@@ -142,7 +145,7 @@ def play(args, env, train_cfg, fault_id = -1):
 	data_set = {'observations':[], 'bodys':[], 'next_observations':[],  'actions':[], 'rewards':[], 'terminals':[], 'timeouts':[]}
 
 
-	output_file = os.path.join(SAVE_DIR, "Trajectory")
+	output_file = os.path.join(SAVE_DIR, "Trajectory2")
 	if not os.path.exists(output_file):
 		os.mkdir(output_file)
 	file_name = f"PPO_I_{fault_id}.pkl"
@@ -332,7 +335,7 @@ if __name__ == '__main__':
 	env_cfg.domain_rand.randomize_friction = NOISE # False
 	env_cfg.domain_rand.push_robots = NOISE # False
 
-	env_cfg.commands.ranges.lin_vel_x = [0.3,0.7]
+	env_cfg.commands.ranges.lin_vel_x = [0.03,0.7]
 	env_cfg.commands.ranges.lin_vel_y = [0.0,0.0]
 	env_cfg.commands.ranges.ang_vel_yaw = [0.0,0.0]
 

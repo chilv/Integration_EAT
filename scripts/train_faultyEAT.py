@@ -82,9 +82,9 @@ def partial_traj(dataset_path_list, context_len=20, rtg_scale=1000, body_dim=12)
     traj_dataset = D4RLTrajectoryDataset(big_list, context_len, rtg_scale, leg_trans_pro=True)
     assert body_dim == traj_dataset.body_dim
     
-    state_mean, state_std, body_mean, body_std = traj_dataset.get_state_stats(body=True)
+    state_mean, state_std = traj_dataset.get_state_stats(body=True)
     
-    return traj_dataset, state_mean, state_std, body_mean, body_std
+    return traj_dataset, state_mean, state_std
 
 
 def train(args):
@@ -121,7 +121,7 @@ def train(args):
     dropout_p = args.dropout_p          # dropout probability
 
 
-    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("IPPO")
+    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config(args.dataset)
     
     # file_list = [f"a1magic{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
     file_list = [os.path.join(datafile, f"{i_magic}.pkl") for i_magic in i_magic_list]
@@ -205,18 +205,18 @@ def train(args):
     print("Loding paths for each robot model...")
     #加载轨迹部分
     if len(dataset_path_list) < 13:
-        traj_dataset, state_mean, state_std, body_mean, body_std = partial_traj(dataset_path_list)
+        traj_dataset, state_mean, state_std= partial_traj(dataset_path_list)
     else:   #当轨迹过多时进行拆分
-        dataset_list, state_mean_list, state_std_list, body_mean_list, body_std_list, xn = [],[],[],[],[],[]
+        dataset_list, state_mean_list, state_std_list, xn = [],[],[],[]
         print(f"divide trajs to {math.ceil(len(dataset_path_list)/12.0)} parts")
         for i in range( math.ceil(len(dataset_path_list)/12.0) ):
             print(f"getting {i+1} parts trajs...")
-            traj_dataset, state_mean, state_std, body_mean, body_std = partial_traj(dataset_path_list[12 * i : 12 * i + 12])
+            traj_dataset, state_mean, state_std = partial_traj(dataset_path_list[12 * i : 12 * i + 12])
             dataset_list.append(traj_dataset)
             state_mean_list.append(state_mean)
             state_std_list.append(state_std)
-            body_mean_list.append(body_mean)
-            body_std_list.append(body_std)
+            # body_mean_list.append(body_mean)
+            # body_std_list.append(body_std)
             xn.append(len(traj_dataset))
             
         #合并轨迹与各项均值方差
@@ -225,8 +225,8 @@ def train(args):
         body_ndarray = np.expand_dims(xn, 1).repeat(12,1)
         state_mean = np.sum(state_mean_list*state_ndarray,0)/np.sum(xn)
         state_std = np.sum(state_std**2*state_ndarray,0)/np.sum(xn)  #由于numpy.std默认求有偏样本标准差 所以这里分母是n
-        body_mean = np.sum(body_mean_list*body_ndarray,0)/np.sum(xn)
-        body_std = np.sum(body_std**2*body_ndarray,0)/np.sum(xn)
+        # body_mean = np.sum(body_mean_list*body_ndarray,0)/np.sum(xn)
+        # body_std = np.sum(body_std**2*body_ndarray,0)/np.sum(xn)
         
         
     # big_list = []
@@ -483,7 +483,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dataset', type=str, default='IPPO')
+    parser.add_argument('--dataset', type=str, default='IPPO2')
     parser.add_argument('--task', type =str, default='a1')
     parser.add_argument('--max_eval_ep_len', type=int, default=1000)
     parser.add_argument('--num_eval_ep', type=int, default=400) 

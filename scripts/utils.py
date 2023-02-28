@@ -798,7 +798,7 @@ class D4RLTrajectoryDataset(Dataset):
 
     def get_state_stats(self, body=False):
         if body:
-            return self.state_mean, self.state_std, self.body_mean, self.body_std
+            return self.state_mean, self.state_std # , self.body_mean, self.body_std
         return self.state_mean, self.state_std
 
     @property
@@ -855,6 +855,64 @@ class D4RLTrajectoryDataset(Dataset):
 
         return  timesteps, states, actions, returns_to_go, traj_mask
 
+class D4RLTrajectoryDatasetForTert(D4RLTrajectoryDataset):
+    def __init__(self, dataset_path, context_len, leg_trans=False, leg_trans_pro=False, bc=False):
+        super().__init__(dataset_path, context_len, 1, leg_trans, leg_trans_pro, bc)
+    
+    def __getitem__(self, idx):
+        traj = self.trajectories[idx]
+        traj_len = traj['observations'].shape[0]
+
+        if traj_len >= self.context_len:
+            # sample random index to slice trajectory
+            si = random.randint(0, traj_len - self.context_len)
+
+            states = torch.from_numpy(traj['observations'][si : si + self.context_len])
+            actions = torch.from_numpy(traj['actions'][si : si + self.context_len])
+            teacher_actions = torch.from_numpy(traj['teacher_actions'][si : si + self.context_len])
+            returns_to_go = torch.from_numpy(traj['returns_to_go'][si : si + self.context_len])
+            timesteps = torch.arange(start=si, end=si+self.context_len, step=1)
+
+            # all ones since no padding
+            traj_mask = torch.ones(self.context_len, dtype=torch.long)
+
+        else:
+            padding_len = self.context_len - traj_len
+
+            # padding with zeros
+            states = torch.from_numpy(traj['observations'])
+            states = torch.cat([states,
+                                torch.zeros(([padding_len] + list(states.shape[1:])),
+                                dtype=states.dtype)],
+                               dim=0)
+
+            actions = torch.from_numpy(traj['actions'])
+            actions = torch.cat([actions,
+                                torch.zeros(([padding_len] + list(actions.shape[1:])),
+                                dtype=actions.dtype)],
+                               dim=0)
+            
+            teacher_actions = torch.from_numpy(traj['teacher_actions'])
+            teacher_actions = torch.cat([teacher_actions,
+                                torch.zeros(([padding_len] + list(teacher_actions.shape[1:])),
+                                dtype=teacher_actions.dtype)],
+                               dim=0)
+
+            returns_to_go = torch.from_numpy(traj['returns_to_go'])
+            returns_to_go = torch.cat([returns_to_go,
+                                torch.zeros(([padding_len] + list(returns_to_go.shape[1:])),
+                                dtype=returns_to_go.dtype)],
+                               dim=0)  #???
+            # pdb.set_trace()
+
+            timesteps = torch.arange(start=0, end=self.context_len, step=1)
+
+            traj_mask = torch.cat([torch.ones(traj_len, dtype=torch.long),
+                                   torch.zeros(padding_len, dtype=torch.long)],
+                                  dim=0)
+
+        return  timesteps, states, actions, teacher_actions, returns_to_go, traj_mask
+
 param_dict = {}
 param_dict_fid7 = {}
 i_magic = 104
@@ -895,6 +953,18 @@ def get_dataset_config(dataset):
         i_magic_list = [f"PPO_I_{x}" for x in range(12)]
         eval_body_vec = [1 for _ in range(12)]
 
+    if dataset == "IPPO2":
+        datafile = "Trajectory_IPPO_2"
+        i_magic_list = [f"PPO_I_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+        
+    if dataset == "TertEAT":    #Tert的情况
+        datafile = "Tert_data"
+        i_magic_list = []
+        for name in ["LFH", "LFK", "LFA", "RFH", "RFK", "RFA", "LBH", "LBK", "LBA", "RBH", "RBK", "RBA"]:
+            i_magic_list.append(f"{name}-F7000-v0")
+        eval_body_vec = [1 for _ in range(12)]
+        
     if dataset == "faulty":
         datafile = "P20F10000-vel0.5-v0"
         i_magic_list = ["none", "LFH", "LFK", "RFH", "RFK", "LBH", "LBK", "LBA", "RBH", "RBK", "RBA"]
