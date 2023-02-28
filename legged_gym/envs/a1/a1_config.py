@@ -81,10 +81,3 @@ class A1RoughCfgPPO( LeggedRobotCfgPPO ):
     class runner( LeggedRobotCfgPPO.runner ):
         run_name = ''
         experiment_name = 'rough_flawed_a1'
-
-class A1RoughCfgPPO_Embody(LeggedRobotCfgPPOEmbody):
-    class algorithm( LeggedRobotCfgPPOEmbody.algorithm ):
-        entropy_coef = 0.01
-    class runner( LeggedRobotCfgPPOEmbody.runner ):
-        run_name = ''
-        experiment_name = 'rough_flawed_a1'
