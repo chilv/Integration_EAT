@@ -1,34 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: BSD-3-Clause
-# 
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# 1. Redistributions of source code must retain the above copyright notice, this
-# list of conditions and the following disclaimer.
-#
-# 2. Redistributions in binary form must reproduce the above copyright notice,
-# this list of conditions and the following disclaimer in the documentation
-# and/or other materials provided with the distribution.
-#
-# 3. Neither the name of the copyright holder nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Copyright (c) 2021 ETH Zurich, Nikita Rudin
-
-#trying faulty leg
 
 import os
 import inspect
@@ -40,6 +9,7 @@ from legged_gym import LEGGED_GYM_ROOT_DIR
 import isaacgym
 from legged_gym.envs import *
 from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger
+from scripts.utils import flaw_generation
 from model import LeggedTransformerPro
 
 import numpy as np
@@ -136,10 +106,10 @@ def test_EAT(args, env, EAT_model, pass_args, faulty_tag = -1, flawed_rate = 1):
     
     state_mean = torch.from_numpy(pass_args["state_mean"]).to(device)
     state_std = torch.from_numpy(pass_args["state_std"]).to(device)
-    body_mean = torch.from_numpy(pass_args["body_mean"]).to(device)
-    body_std = torch.from_numpy(pass_args["body_std"]).to(device)
+    # body_mean = torch.from_numpy(pass_args["body_mean"]).to(device)
+    # body_std = torch.from_numpy(pass_args["body_std"]).to(device)
     
-    body_target = (torch.tensor(body_target, dtype=torch.float32, device=device) - body_mean) / body_std
+    body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
     bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32)
     
     results = {}
@@ -178,6 +148,7 @@ def test_EAT(args, env, EAT_model, pass_args, faulty_tag = -1, flawed_rate = 1):
                                         body=bodies[:,t-context_len+1:t+1])
                 act = act_preds[:, -1].detach()
             
+            # body, _ = flaw_generation(ENV_NUMS, fixed_joint = [faulty_tag], flawed_rate = flawed_rate, device = )
             running_state, _, running_reward, done, infos = env.step(act, [faulty_tag], flawed_rate)
             # if t < max_test_ep_len/8:
                 # running_state, _, running_reward, done, infos = env.step(act, [-1])
@@ -216,17 +187,17 @@ if __name__ == '__main__':
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     
     #测试ppo======================================================================
-    ppo_row_names = [0, 0.25, 0.5, 0.75]
-    out_table = np.zeros((12,5))
-    for i in range(12):#12条断腿情况
-        # for j in range (0, 0.8, 0.1):
-        for j in ppo_row_names:            
-            out_table[i, ppo_row_names.index(j)], _ = test_ppo(args, env, train_cfg, i, j)
-    out_table[:,-1],_ = test_ppo(args, env, train_cfg, -1, 1) #测完好情况
-    ppo_df = pd.DataFrame(out_table)
-    ppo_df.index = codename_list
-    ppo_df.columns = [0,0.25,0.5, 0.75, 1.0]
-    ppo_res = ppo_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_sppo_.csv"), mode='w')
+    # ppo_row_names = [0, 0.25, 0.5, 0.75]
+    # out_table = np.zeros((12,5))
+    # for i in range(12):#12条断腿情况
+    #     # for j in range (0, 0.8, 0.1):
+    #     for j in ppo_row_names:            
+    #         out_table[i, ppo_row_names.index(j)], _ = test_ppo(args, env, train_cfg, i, j)
+    # out_table[:,-1],_ = test_ppo(args, env, train_cfg, -1, 1) #测完好情况
+    # ppo_df = pd.DataFrame(out_table)
+    # ppo_df.index = codename_list
+    # ppo_df.columns = [0,0.25,0.5, 0.75, 1.0]
+    # ppo_res = ppo_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_sppo_.csv"), mode='w')
     # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_ppo.csv"), out_table, delimiter=',')
     #测试ppo结束===================================================================
     
@@ -274,11 +245,11 @@ if __name__ == '__main__':
         # for j in range (0, 0.8, 0.1):
         for j in EAT_rows:            
             EAT_table[i, np.where(EAT_rows==j)], _ = test_EAT(args, env, EAT_model, pass_args, i, j)
-    # EAT_table[:,-1],_ = test_EAT(args, env, EAT_model, pass_args, -1, 1) #测完好情况
+    EAT_table[:,-1],_ = test_EAT(args, env, EAT_model, pass_args, -1, 1) #测完好情况
     EAT_df = pd.DataFrame(EAT_table)
     EAT_df.index = codename_list
     EAT_df.columns = np.arange(0.0, 1.0, 0.1)
-    EAT_res = EAT_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT_IPPO.csv"), mode='w')
+    EAT_res = EAT_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT_test.csv"), mode='w')
     # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT2.csv"), EAT_table, delimiter=',')
     #测试EAT结束===================================================================
     
