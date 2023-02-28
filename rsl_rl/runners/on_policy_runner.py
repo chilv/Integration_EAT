@@ -83,7 +83,7 @@ class OnPolicyRunner:
         _, _ = self.env.reset()
     
     
-    def learn(self, num_learning_iterations, init_at_random_ep_len=False, body_dim = 0, flawed_joint = [-1], flawed_rate = 0):
+    def learn(self, num_learning_iterations, init_at_random_ep_len=False, body_dim = 0, flawed_joint = [-1], flawed_rate = 1):
         # initialize writer
         if self.log_dir is not None and self.writer is None:
             self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
