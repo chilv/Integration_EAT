@@ -49,6 +49,3 @@ task_registry.register( "anymal_c_flat", Anymal, AnymalCFlatCfg(), AnymalCFlatCf
 task_registry.register( "anymal_b", Anymal, AnymalBRoughCfg(), AnymalBRoughCfgPPO() )
 task_registry.register( "a1", LeggedRobot, A1RoughCfg(), A1RoughCfgPPO() )
 task_registry.register( "cassie", Cassie, CassieRoughCfg(), CassieRoughCfgPPO() )
-
-import legged_gym.utils.task_registry_embody as embody
-embody.task_registry.register( "a1", LeggedRobot, A1RoughCfg(), A1RoughCfgPPO_Embody() )
