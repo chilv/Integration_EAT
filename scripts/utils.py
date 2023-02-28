@@ -355,7 +355,7 @@ def evaluate_on_env_batch(model, device, context_len, env, rtg_target, rtg_scale
 
     return results
 
-def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=-1, device = "cpu"):
+def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=1, device = "cpu"):
     '''
         num_envs: 环境数
         fixed_joint: 指定损坏的关节为fixed_joint(LIST) [0,11]，若不固定为-1
