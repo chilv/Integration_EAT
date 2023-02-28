@@ -37,9 +37,10 @@ from torch.utils.tensorboard import SummaryWriter
 import torch
 
 from rsl_rl.algorithms import PPO
-from rsl_rl.modules import ActorCritic, ActorCriticRecurrent
+from rsl_rl.modules import ActorCritic
 from rsl_rl.env import VecEnv
-
+import random
+from scripts.utils import flaw_generation
 
 class OnPolicyRunner:
 
@@ -47,7 +48,8 @@ class OnPolicyRunner:
                  env: VecEnv,
                  train_cfg,
                  log_dir=None,
-                 device='cpu'):
+                 device='cpu',
+                 body_dim=0):
 
         self.cfg=train_cfg["runner"]
         self.alg_cfg = train_cfg["algorithm"]
@@ -59,17 +61,17 @@ class OnPolicyRunner:
         else:
             num_critic_obs = self.env.num_obs
         actor_critic_class = eval(self.cfg["policy_class_name"]) # ActorCritic
-        actor_critic: ActorCritic = actor_critic_class( self.env.num_obs,
+        actor_critic: ActorCritic = actor_critic_class(body_dim, self.env.num_obs,
                                                         num_critic_obs,
                                                         self.env.num_actions,
                                                         **self.policy_cfg).to(self.device)
         alg_class = eval(self.cfg["algorithm_class_name"]) # PPO
-        self.alg: PPO = alg_class(actor_critic, device=self.device, **self.alg_cfg)
+        self.alg: PPO = alg_class(actor_critic, device=self.device, body_dim = body_dim, **self.alg_cfg)
         self.num_steps_per_env = self.cfg["num_steps_per_env"]#24
         self.save_interval = self.cfg["save_interval"]
 
         # init storage and model
-        self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, [self.env.num_obs], [self.env.num_privileged_obs], [self.env.num_actions])
+        self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, body_dim, [self.env.num_obs], [self.env.num_privileged_obs], [self.env.num_actions])
 
         # Log
         self.log_dir = log_dir
@@ -80,21 +82,14 @@ class OnPolicyRunner:
 
         _, _ = self.env.reset()
     
-    def body_gen(self, flawed_joint, flawed_rate = 0):
-        body = torch.ones(12)
-        if -1 not in flawed_joint:
-            body[flawed_joint] = flawed_rate
-        bodys = body.repeat(self.env.num_envs,1)
-        return bodys
-
-    def learn(self, num_learning_iterations, init_at_random_ep_len=False, flawed_joint = [-1], flawed_rate = 0):
+    
+    def learn(self, num_learning_iterations, init_at_random_ep_len=False, body_dim = 0, flawed_joint = [-1], flawed_rate = 0):
         # initialize writer
         if self.log_dir is not None and self.writer is None:
             self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
         if init_at_random_ep_len:
             self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
-        bodys = self.body_gen(flawed_joint, flawed_rate)
-        bodys = bodys.to(self.device)
+        bodys, joints = flaw_generation(self.env.num_envs, body_dim, flawed_joint, flawed_rate, device = self.device)
         obs = self.env.get_observations()
         privileged_obs = self.env.get_privileged_observations()
         critic_obs = privileged_obs if privileged_obs is not None else obs
@@ -108,15 +103,15 @@ class OnPolicyRunner:
         cur_episode_length = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
 
         tot_iter = self.current_learning_iteration + num_learning_iterations
+
+        max_reward = -1e9
+
         for it in range(self.current_learning_iteration, tot_iter):
             start = time.time()
-            #设定随机坏损的比率
-            # random_index = 100
-            max_rew = -1.0
             # Rollout
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
-                    actions = self.alg.act(obs, critic_obs)
+                    actions = self.alg.act(obs, critic_obs, bodys)
                     #!----------这里作为关节锁死的设定
                     # actions[:,0] = -2.0#锁死臀关节
                     # actions[:,1] = -2.0#锁死膝关节
@@ -143,18 +138,20 @@ class OnPolicyRunner:
 
                 # Learning step
                 start = stop
-                self.alg.compute_returns(critic_obs)
+                self.alg.compute_returns(critic_obs, bodys)
             
             mean_value_loss, mean_surrogate_loss, mean_symmetric_loss = self.alg.update()
             stop = time.time()
             learn_time = stop - start
             if self.log_dir is not None:
-                self.log(locals())
+                rw = self.log(locals())
+                if rw > max_reward:
+                    max_reward = rw
+                    self.save(os.path.join(self.log_dir, "model_best.pt"))
+
             if it % self.save_interval == 0:
                 self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
-            if statistics.mean(rewbuffer) > max_rew:
-                max_rew = statistics.mean(rewbuffer)
-                self.save(os.path.join(self.log_dir, 'model_best.pt'))
+            
             ep_infos.clear()
         
         self.current_learning_iteration += num_learning_iterations
@@ -229,6 +226,8 @@ class OnPolicyRunner:
                        f"""{'ETA:':>{pad}} {self.tot_time / (locs['it'] + 1) * (
                                locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
         print(log_string)
+        return statistics.mean(locs['rewbuffer'])
+
 
     def save(self, path, infos=None):
         torch.save({
@@ -239,7 +238,7 @@ class OnPolicyRunner:
             }, path)
 
     def load(self, path, load_optimizer=True):
-        loaded_dict = torch.load(path)
+        loaded_dict = torch.load(path, map_location=self.device)
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         if load_optimizer:
             self.alg.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
@@ -251,3 +250,4 @@ class OnPolicyRunner:
         if device is not None:
             self.alg.actor_critic.to(device)
         return self.alg.actor_critic.act_inference
+

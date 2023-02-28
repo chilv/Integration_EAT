@@ -34,16 +34,12 @@ import inspect
 import os
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
-grandpardir = os.path.dirname(parentdir)
-print(currentdir, parentdir)
 os.sys.path.insert(0, parentdir)
-os.sys.path.insert(0, os.path.dirname(parentdir))
-# os.sys.path.insert(0, os.path.dirname(currentdir))
-print(os.sys.path)
-# from legged_gym import LEGGED_GYM_ROOT_DIR
+os.sys.path.insert(0, os.path.dirname(currentdir))
+
+from legged_gym import LEGGED_GYM_ROOT_DIR
 import collections
 import isaacgym
-
 from legged_gym.envs import *
 from legged_gym.utils import  get_args, export_policy_as_jit, Logger
 from legged_gym.utils.task_registry_embody import task_registry

@@ -150,7 +150,7 @@ class TaskRegistry():
 
         train_cfg_dict = class_to_dict(train_cfg)
         runner = OnPolicyRunner(env, train_cfg_dict,
-                                log_dir, device=args.rl_device)
+                                log_dir, device=args.rl_device, body_dim = train_cfg.runner.body_dim)
         # save resume path before creating a new log_dir
         resume = train_cfg.runner.resume
         if resume:

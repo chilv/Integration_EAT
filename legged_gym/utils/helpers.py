@@ -154,7 +154,8 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
             cfg_train.runner.load_run = args.load_run
         if args.checkpoint is not None:
             cfg_train.runner.checkpoint = args.checkpoint
-
+        if args.body_dim is not None:
+            cfg_train.runner.body_dim = args.body_dim
     return env_cfg, cfg_train
 
 
@@ -172,7 +173,8 @@ def get_args():
             "help": "Name of the run to load when resume=True. If -1: will load the last run. Overrides config file if provided."},
         {"name": "--checkpoint", "type": int,
             "help": "Saved model checkpoint number. If -1: will load the last checkpoint. Overrides config file if provided."},
-
+        {"name": "--body_dim", "type":int, "default":0},
+        
         {"name": "--headless", "action": "store_true",
             "default": False, "help": "Force display off at all times"},
         {"name": "--horovod", "action": "store_true", "default": False,
@@ -187,8 +189,8 @@ def get_args():
             "help": "Maximum number of training iterations. Overrides config file if provided."},
         {"name": "--algorithm_name", "type": str, "default": "mat",
             "help": "."},
-        {"name": "--joint", "type": int,},
-        {"name": "--rate_idx", "type":int},
+        {"name": "--joint", "type": list, "default":[-1]},
+        {"name": "--rate", "type":float, "default": -1},
         # parser.add_argument("--n_training_threads", type=int,
         #                 default=1, help="Number of torch threads for training")
     ]

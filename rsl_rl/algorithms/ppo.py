@@ -55,10 +55,11 @@ class PPO:
                  schedule="fixed",
                  desired_kl=0.01,
                  device='cpu',
+                 body_dim = 0
                  ):
 
         self.device = device
-
+        self.body_dim = body_dim
         self.desired_kl = desired_kl
         self.schedule = schedule
         self.learning_rate = learning_rate
@@ -83,9 +84,9 @@ class PPO:
         self.use_clipped_value_loss = use_clipped_value_loss
         self.symm_coef = 1e-3#Try to zoom to the same as other losses
 
-    def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape):
+    def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, body_dim = 0):
         self.storage = RolloutStorage(
-            num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, self.device)
+            num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, body_dim, self.device)
 
     def test_mode(self):
         self.actor_critic.test()
@@ -93,13 +94,14 @@ class PPO:
     def train_mode(self):
         self.actor_critic.train()
 
-    def act(self, obs, critic_obs):
+    def act(self, obs, critic_obs, bodys = None):
         if self.actor_critic.is_recurrent:
             self.transition.hidden_states = self.actor_critic.get_hidden_states()
         # Compute the actions and values
-        self.transition.actions = self.actor_critic.act(obs).detach()
+        self.transition.embody = bodys
+        self.transition.actions = self.actor_critic.act(obs, bodys).detach()
         self.transition.values = self.actor_critic.evaluate(
-            critic_obs).detach()
+            critic_obs, bodys).detach()
         self.transition.actions_log_prob = self.actor_critic.get_actions_log_prob(
             self.transition.actions).detach()
         self.transition.action_mean = self.actor_critic.action_mean.detach()
@@ -123,8 +125,8 @@ class PPO:
         self.transition.clear()
         self.actor_critic.reset(dones)
 
-    def compute_returns(self, last_critic_obs):
-        last_values = self.actor_critic.evaluate(last_critic_obs).detach()
+    def compute_returns(self, last_critic_obs, bodys = None):
+        last_values = self.actor_critic.evaluate(last_critic_obs, bodys).detach()
         self.storage.compute_returns(last_values, self.gamma, self.lam)
 
     def mirror_act(self, original_actions:torch.Tensor) -> torch.Tensor :
@@ -188,18 +190,24 @@ class PPO:
         else:
             generator = self.storage.mini_batch_generator(
                 self.num_mini_batches, self.num_learning_epochs)
-        for obs_batch, critic_obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
-                old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch in generator:
-                    
+        for pa in generator:
+            if self.body_dim:
+                embodys_batch, obs_batch, critic_obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
+                old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch = pa
+            else:
+                obs_batch, critic_obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
+                old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch = pa
+                
+                embodys_batch = None
             # get symmertric actions
             # mirror_actions_sample = self.actor_critic.act(self.mirror_obs(obs_batch))
             
             self.actor_critic.act(
-                obs_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
+                obs_batch, embodys_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
             actions_log_prob_batch = self.actor_critic.get_actions_log_prob(
                 actions_batch)
             value_batch = self.actor_critic.evaluate(
-                critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
+                critic_obs_batch, embodys_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
             mu_batch = self.actor_critic.action_mean
             sigma_batch = self.actor_critic.action_std
             entropy_batch = self.actor_critic.entropy

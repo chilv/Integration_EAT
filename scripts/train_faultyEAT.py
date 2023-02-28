@@ -25,7 +25,7 @@ from model import DecisionTransformer, LeggedTransformer, LeggedTransformerPro, 
 import wandb
 # from singlea1 import A1
 # from a1wrapper import A1
-from legged_gym.utils.task_registry_embody import task_registry
+from legged_gym.utils import task_registry
 from tqdm import trange, tqdm
 
 def partial_traj(dataset_path_list, context_len=20, rtg_scale=1000, body_dim=12):
@@ -107,7 +107,7 @@ def train(args):
     dropout_p = args.dropout_p          # dropout probability
 
 
-    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config("IPPO")
+    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config(args.dataset)
     
     # file_list = [f"a1magic{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
     file_list = [os.path.join(datafile, f"{i_magic}.pkl") for i_magic in i_magic_list]
@@ -128,7 +128,7 @@ def train(args):
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [0.5, 0.5]
+    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]
     env, _ = task_registry.make_env(name = args.task, args = env_args, env_cfg = env_cfg)
     # env = A1(num_envs=args.num_eval_ep, noise=args.noise)#这里eval_env编译不通过，因为注册表中没有该环境，暂时跳过试一下
     

@@ -355,20 +355,23 @@ def evaluate_on_env_batch(model, device, context_len, env, rtg_target, rtg_scale
 
     return results
 
-def flaw_generation(num_envs, rate=1, bodydim = 12, fixed_joint = -1): # rate: the rate of env which have a flawed joint
-        # import pdb
-        # pdb.set_trace()
-        t = torch.rand(num_envs)
-        p = torch.randint(1, bodydim+1, (num_envs,))
-        if not fixed_joint == -1:
-            p = fixed_joint + 1
-        t = (t<rate) * p
-        bodys = torch.ones(num_envs, bodydim)
-        for i in range(num_envs):
-            if t[i] > 0:
-                bodys[i][t[i]-1] = random.random()
-        # print(bodys.shape)
-        return bodys, t
+def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=-1, device = "cpu"):
+    '''
+        num_envs: 环境数
+        fixed_joint: 指定损坏的关节为fixed_joint(LIST) [0,11]，若不固定为-1
+        flawed_rate: 损坏程度为flawed_rate, 若随机坏损为-1
+        t(num_envs * len(fixed_joint)): 坏损的关节
+    '''
+    if bodydim == 0:
+        return None, None
+    t = torch.randint(0, bodydim, (num_envs,))
+    if -1 not in fixed_joint:
+        t = torch.ones((num_envs, len(fixed_joint)), dtype=int) * torch.tensor(fixed_joint)
+    bodys = torch.ones(num_envs, bodydim).to(device)
+    for i in range(num_envs):
+        for joint in t[i]:
+            bodys[i, joint] = random.random() if flawed_rate == -1 else flawed_rate
+    return bodys, t
 
 def flaw(bodys, joints, rate = 0.004): #each joint has a flaw rate to be partial of itself.
     num_envs = bodys.shape[0]
