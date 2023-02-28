@@ -37,7 +37,7 @@ from .anymal_c.flat.anymal_c_flat_config import AnymalCFlatCfg, AnymalCFlatCfgPP
 from .anymal_b.anymal_b_config import AnymalBRoughCfg, AnymalBRoughCfgPPO
 from .cassie.cassie import Cassie
 from .cassie.cassie_config import CassieRoughCfg, CassieRoughCfgPPO
-from .a1.a1_config import A1RoughCfg, A1RoughCfgPPO, A1RoughCfgPPO_Embody
+from .a1.a1_config import A1RoughCfg, A1RoughCfgPPO
 
 
 import os
