@@ -373,16 +373,22 @@ def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=1, d
             bodys[i, joint] = random.random() if flawed_rate == -1 else flawed_rate
     return bodys, t
 
-def flaw(bodys, joints, rate = 0.004): #each joint has a flaw rate to be partial of itself.
+def step_body(bodys, joint, rate = 0, threshold = 1, descend = 0.005): #each joint has a flaw rate to be partial of itself.
+    '''
+    joint: (num_envs, ,) OR a single int, 每个环境对应的1个坏损关节 
+        #TODO: joint will become (num_envs, num), num means the number of flawed joints.
+    rate: 每个step，有rate的概率使得关节扭矩往下掉，剩余扭矩比例随机
+    threshold， descend: 在剩余扭矩高于threshold时，每次减少 descend 
+    '''        
     num_envs = bodys.shape[0]
     t = torch.rand(num_envs)
     t = (t<rate) * random.random()
     t = 1 - t
     t = t.to(bodys.device)
-    # print(t.shape)
+    bodys[:, joint] *= t
     for i in range(num_envs):
-        if joints[i]>0:
-            bodys[i, joints[i]-1] *= t[i]
+        if bodys[i,joint] > threshold:
+            bodys[i,joint] -= descend
     # print(bodys[:10,:])
     return bodys
 
@@ -440,7 +446,7 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
                                 dtype=torch.float32, device=device) # Here we assume that obs = state !!
         # bodys = torch.ones((eval_batch_size, max_test_ep_len, body_dim),
         #                         dtype=torch.float32, device=device)
-        running_body , joints = flaw_generation(eval_batch_size, rate = 1, bodydim = body_dim, fixed_joint=-1)
+        running_body , joints = flaw_generation(eval_batch_size, bodydim = body_dim, fixed_joint=[-1], device=device)
         running_body = running_body.to(device)
         bodys = running_body.expand(max_test_ep_len, eval_batch_size, body_dim).type(torch.float32)
         bodys = torch.transpose(bodys, 0, 1).to(device)
@@ -525,7 +531,7 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
             total_rewards += running_reward.detach().cpu().numpy() * (dones == 0)
             dones += done.detach().cpu().numpy()
 
-            running_body = flaw(running_body, joints)
+            running_body = step_body(running_body, joints, rate = 0.04, threshold=0.4, descend= 0.005)
                     
         #             # pdb.set_trace()
         #             if t < context_len:
@@ -1011,7 +1017,10 @@ def get_dataset_config(dataset):
         datafile = "Trajectory_IPPO"
         i_magic_list = [f"PPO_I_{x}" for x in range(12)]
         eval_body_vec = [1 for _ in range(12)]
-
+    if dataset == "IPPO2":
+        datafile = "Trajectory_IPPO_2"
+        i_magic_list = [f"PPO_I_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
     if dataset == "faulty":
         datafile = "P20F10000-vel0.5-v0"
         i_magic_list = ["none", "LFH", "LFK", "RFH", "RFK", "LBH", "LBK", "LBA", "RBH", "RBK", "RBA"]

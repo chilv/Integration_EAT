@@ -42,11 +42,13 @@ import collections
 import isaacgym
 from legged_gym.envs import *
 from legged_gym.utils import  get_args, export_policy_as_jit, Logger
-from legged_gym.utils.task_registry_embody import task_registry
+from legged_gym.utils import task_registry
 import numpy as np
 import torch
 
 from tqdm import trange, tqdm
+from scripts.utils import flaw_generation, step_body
+
 
 NUM_ENVS = 10000 #4000 #10000 # 400 #4000 #1000 # 50# 20000 #
 REP = 1 #10 #20
@@ -58,7 +60,7 @@ PASSSCORE = 17 #20	#设定分数下界
 FILTER = True
 VEL0_5 = False
 VEL0_4 = False
-SAVE_DIR = os.path.join(grandpardir, "data")
+SAVE_DIR = os.path.join(parentdir, "data")
 if not os.path.exists(SAVE_DIR):
 	os.mkdir(SAVE_DIR)
 	
@@ -74,36 +76,6 @@ for i in ["F", "B"]:
         for k in ["H", "K", "A"]:
             codename_list.append(j+i+k)
 # rate_list = [0, 0.25, 0.5, 0.75]#储存现有的故障比率模型
-
-def flaw_generation(num_envs, rate=1, bodydim = 12, fixed_joint = -1): # rate: the rate of env which have a flawed joint
-	# import pdb
-	# pdb.set_trace()
-	import random
-	t = torch.rand(num_envs)
-	p = torch.randint(1, bodydim+1, (num_envs,))
-	if not fixed_joint == -1:
-		p = fixed_joint + 1
-	t = (t<rate) * p
-	bodys = torch.ones(num_envs, bodydim)
-	for i in range(num_envs):
-		if t[i] > 0:
-			bodys[i][t[i]-1] = random.random()
-	# print(bodys[:10,:])
-	print(bodys.shape)
-	return bodys
-
-def flaw(bodys, joint, rate = 0.004): #each joint has a flaw rate to be partial of itself.
-	num_envs = bodys.shape[0]
-	t = torch.rand(num_envs)
-	import random
-	t = (t<rate) * random.random()
-	t = 1 - t
-	t = t.to(bodys.device)
-	# print(t.shape)
-	bodys[:, joint] *= t
-	# print(bodys[:10,:])
-	return bodys
-
 
 def play(args, env, train_cfg, fault_id = -1):
 	'''
@@ -137,8 +109,7 @@ def play(args, env, train_cfg, fault_id = -1):
 
 	data_set = {'observations':[], 'bodys':[], 'next_observations':[],  'actions':[], 'rewards':[], 'terminals':[], 'timeouts':[]}
 
-
-	output_file = os.path.join(SAVE_DIR, "Trajectory")
+	output_file = os.path.join(SAVE_DIR, "Trajectory3")
 	if not os.path.exists(output_file):
 		os.mkdir(output_file)
 	file_name = f"PPO_I_{fault_id}.pkl"
@@ -175,8 +146,7 @@ def play(args, env, train_cfg, fault_id = -1):
 	total_rewards = np.zeros(NUM_ENVS)
 	total_dones = np.zeros(NUM_ENVS)
 
-	bodys = flaw_generation(env.num_envs, rate=1, bodydim=12, fixed_joint=fault_id)
-	bodys = bodys.to(env.device)
+	bodys, _ = flaw_generation(env.num_envs, bodydim=12, fixed_joint=[fault_id], device=env.device)
 	print("RECORDING DATA ......")
 	print(env.max_episode_length)
 	# assert int(env.max_episode_length) == 1000
@@ -185,7 +155,7 @@ def play(args, env, train_cfg, fault_id = -1):
 		obs_ori = obs.cpu().detach().numpy()[:,:48]
 		bodys_ori = bodys.cpu().detach().numpy()
 		obs, _ , rews, dones, infos = env.step(actions.detach(),bodys)
-		bodys = flaw(bodys, fault_id)
+		bodys = step_body(bodys, fault_id, rate = 0.04, threshold= 0.4, descend=0.005)
 		data_set['observations'].append(obs_ori)
 		data_set['bodys'].append(bodys_ori)
 		data_set['rewards'].append(rews.cpu().detach().numpy())
@@ -328,7 +298,7 @@ if __name__ == '__main__':
 	env_cfg.domain_rand.randomize_friction = NOISE # False
 	env_cfg.domain_rand.push_robots = NOISE # False
 
-	env_cfg.commands.ranges.lin_vel_x = [0.3,0.7]
+	env_cfg.commands.ranges.lin_vel_x = [0.03,0.7]
 	env_cfg.commands.ranges.lin_vel_y = [0.0,0.0]
 	env_cfg.commands.ranges.ang_vel_yaw = [0.0,0.0]
 
