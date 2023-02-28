@@ -78,7 +78,7 @@ class LeggedRobot(BaseTask):
 
         self.action_scale = self.cfg.control.action_scale
 
-    def step(self, actions, embodys = None):
+    def step(self, actions, flawed_joint = [-1], flawed_rate = 1, embodys = None):
         """ Apply actions, simulate, call self.post_physics_step()
 
         Args:
@@ -95,9 +95,10 @@ class LeggedRobot(BaseTask):
             if embodys is not None:
                 self.torques = self.torques.mul(embodys)
             #!-----这里用作设置关节失力的情况
-            # if not -1 in flawed_joint:
-                # self.torques[:,flawed_joint] = self.torques[:,flawed_joint] * flawed_rate
-                # self.torques[:,flawed_joint] = torch.min(self.torques[:,flawed_joint], torch.ones_like(self.torques)[:,flawed_joint] * flawed_rate)  ## 这里改成了阈值而不是比例。
+            else:
+                if not -1 in flawed_joint:
+                    self.torques[:,flawed_joint] = self.torques[:,flawed_joint] * flawed_rate
+                    # self.torques[:,flawed_joint] = torch.min(self.torques[:,flawed_joint], torch.ones_like(self.torques)[:,flawed_joint] * flawed_rate)  ## 这里改成了阈值而不是比例。
 
             # self.torques[:,9:12] = 0 #某条退全部失力
             # self.torques[:,6] = 0 #臀部关节失力
