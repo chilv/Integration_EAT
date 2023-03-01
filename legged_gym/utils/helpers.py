@@ -189,8 +189,11 @@ def get_args():
             "help": "Maximum number of training iterations. Overrides config file if provided."},
         {"name": "--algorithm_name", "type": str, "default": "mat",
             "help": "."},
-        {"name": "--joint", "type": list, "default":[-1]},
+        {"name": "--joint", "nargs": '+', "type": int, "default":[-1]},
+
         {"name": "--rate", "type":float, "default": -1},
+        {"name": "--not_use_body_norm", "action": "store_true",
+            "default": False},
         # parser.add_argument("--n_training_threads", type=int,
         #                 default=1, help="Number of torch threads for training")
     ]
@@ -204,6 +207,13 @@ def get_args():
     args.sim_device = args.sim_device_type
     if args.sim_device == 'cuda':
         args.sim_device += f":{args.sim_device_id}"
+    args.joint = [args.joint]
+    # {"name": "--joint", "nargs": '+', "type": int, "default":[-1]},
+    # import argparse
+    # parser = argparse.ArgumentParser(description="My list args")
+    # parser.add_argument('--joints', nargs='+',type = int, default = [-1])
+    # myargs = parser.parse_args()
+    # args.joint = myargs.joints
     return args
 
 

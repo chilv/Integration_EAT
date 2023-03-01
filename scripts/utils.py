@@ -373,7 +373,7 @@ def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=1, d
             bodys[i, joint] = random.random() if flawed_rate == -1 else flawed_rate
     return bodys, t
 
-def step_body(bodys, joint, rate = 0, threshold = 1, descend = 0.005): #each joint has a flaw rate to be partial of itself.
+def step_body(bodys, joint, rate = 0.004, threshold = 1, descend = 0.005): #each joint has a flaw rate to be partial of itself.
     '''
     joint: (num_envs, ,) OR a single int, 每个环境对应的1个坏损关节 
         #TODO: joint will become (num_envs, num), num means the number of flawed joints.
@@ -385,10 +385,15 @@ def step_body(bodys, joint, rate = 0, threshold = 1, descend = 0.005): #each joi
     t = (t<rate) * random.random()
     t = 1 - t
     t = t.to(bodys.device)
+    if type(joint) == torch.Tensor:
+        joint = joint.squeeze()
     bodys[:, joint] *= t
-    for i in range(num_envs):
-        if bodys[i,joint] > threshold:
-            bodys[i,joint] -= descend
+    if type(joint)==int:
+        joint = torch.ones(num_envs) * joint
+    if threshold <1 and descend>0:
+        for idx, j in enumerate(joint): #This Part will slow down the speed a lot! Considering to remove it at some time. OR Re-Implement it in a fancy way
+            if bodys[idx, j] > threshold:
+                bodys[idx, j] -= descend
     # print(bodys[:10,:])
     return bodys
 

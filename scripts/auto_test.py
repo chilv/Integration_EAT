@@ -42,18 +42,19 @@ def test_ppo(args, env, train_cfg, faulty_tag = -1, flawed_rate = 1):
     # load policy
     train_cfg.runner.resume = True
     # train_cfg.runner.load_run = "strange"
-    if faulty_tag == -1:
-        train_cfg.runner.load_run = f""
-    else:
-        train_cfg.runner.load_run = f"{flawed_rate}_torques/{codename_list[faulty_tag]}_{flawed_rate}"
-        
+    # if faulty_tag == -1:
+    #     train_cfg.runner.load_run = f""
+    # else:
+    #     train_cfg.runner.load_run = f"{faulty_tag}"
+    train_cfg.runner.load_run = "PPO_Models"
+    train_cfg.runner.checkpoint = faulty_tag
     log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
     #判断模型文件是否存在 若不存在则报错弹出
-    if not os.path.exists(os.path.join(log_root,train_cfg.runner.load_run)):
-        print(f"no model file{faulty_tag}_{flawed_rate}")
-        return -1 , 0
+    # if not os.path.exists(os.path.join(log_root,train_cfg.runner.load_run)):
+    #     print(f"no model file{faulty_tag}_{flawed_rate}")
+    #     return -1 , 0
 
-    train_cfg.runner.checkpoint = -1    #! 改成best
+    # train_cfg.runner.checkpoint = -1    #! 改成best
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy = ppo_runner.get_inference_policy(device=env.device)
 
@@ -71,8 +72,10 @@ def test_ppo(args, env, train_cfg, faulty_tag = -1, flawed_rate = 1):
     cur_episode_length = torch.zeros(env_cfg.env.num_envs, dtype=torch.float, device=args.sim_device)
     lengthbuffer = deque(maxlen=100)
     
+    body, _ = flaw_generation(env.num_envs, bodydim=12, fixed_joint=[faulty_tag], flawed_rate=flawed_rate, device=env.device)
+
     for i in range(int(env.max_episode_length) + 1):
-        actions = policy(obs.detach())
+        actions = policy(obs.detach(), body)
         obs, _, rews, dones, infos = env.step(actions.detach(), flawed_joint = [faulty_tag], flawed_rate = flawed_rate)
         
         cur_reward_sum += rews
@@ -188,26 +191,38 @@ if __name__ == '__main__':
     
     #测试ppo======================================================================
     # ppo_row_names = [0, 0.25, 0.5, 0.75]
-    # out_table = np.zeros((12,5))
+    # ppo_row_names = np.arange(0,1,0.1)
+    # out_table = np.zeros((12,10))
     # for i in range(12):#12条断腿情况
     #     # for j in range (0, 0.8, 0.1):
+    #     t = 0
     #     for j in ppo_row_names:            
-    #         out_table[i, ppo_row_names.index(j)], _ = test_ppo(args, env, train_cfg, i, j)
-    # out_table[:,-1],_ = test_ppo(args, env, train_cfg, -1, 1) #测完好情况
+    #         out_table[i, t], _ = test_ppo(args, env, train_cfg, i, j)
+    #         t += 1
+    # # out_table[:,-1],_ = test_ppo(args, env, train_cfg, -1, 1) #测完好情况
     # ppo_df = pd.DataFrame(out_table)
     # ppo_df.index = codename_list
-    # ppo_df.columns = [0,0.25,0.5, 0.75, 1.0]
-    # ppo_res = ppo_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_sppo_.csv"), mode='w')
-    # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_ppo.csv"), out_table, delimiter=',')
+    # # ppo_df.columns = [0,0.25,0.5, 0.75, 1.0]
+    # ppo_df.columns = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    # ppo_res = ppo_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/IPPOS.csv"), mode='w')
+    # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/IPPO.csv"), out_table, delimiter=',')
     #测试ppo结束===================================================================
     
     
     #测试EAT======================================================================
     #loading EAT model
     # loading pre_record stds,means...
-    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO/")
-    state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
+    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO_19/")
+    
+    state_mean, state_std= np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
+    if not args.not_use_body_norm:
+        body_mean, body_std = np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
+    else:
+        body_mean, body_std = None, None
     pass_args = {"state_mean":state_mean, "state_std":state_std, "body_mean":body_mean, "body_std":body_std}
+    
+    # state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
+    # pass_args = {"state_mean":state_mean, "state_std":state_std, "body_mean":body_mean, "body_std":body_std}
     
     state_dim = 48
     act_dim = 12
@@ -235,7 +250,7 @@ if __name__ == '__main__':
             ).to(device)
     EAT_model.load_state_dict(torch.load(
         os.path.join(model_path,"model_best.pt")
-    ))
+    , map_location=device))
     EAT_model.eval()
     
     #testing
@@ -249,7 +264,7 @@ if __name__ == '__main__':
     EAT_df = pd.DataFrame(EAT_table)
     EAT_df.index = codename_list
     EAT_df.columns = np.arange(0.0, 1.0, 0.1)
-    EAT_res = EAT_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT_test.csv"), mode='w')
-    # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT2.csv"), EAT_table, delimiter=',')
+    EAT_res = EAT_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/EAT_IPPO_ORIGIN.csv"), mode='w')
+    # # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT2.csv"), EAT_table, delimiter=',')
     #测试EAT结束===================================================================
     
