@@ -25,7 +25,7 @@ from model import DecisionTransformer, LeggedTransformer, LeggedTransformerPro, 
 import wandb
 # from singlea1 import A1
 # from a1wrapper import A1
-from legged_gym.utils import task_registry
+from legged_gym.utils import task_registry, Logger
 from tqdm import trange, tqdm
 
 def partial_traj(dataset_path_list, context_len=20, rtg_scale=1000, body_dim=12):
@@ -439,7 +439,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='flawedppo')
 
     parser.add_argument('--max_eval_ep_len', type=int, default=1000)
-    parser.add_argument('--num_eval_ep', type=int, default=10)
+    parser.add_argument('--num_eval_ep', type=int, default=1024)      #事实上此参数决定了测试环境数量 原值10
     parser.add_argument('--noise', type=int, help="noisy environemnt for evaluation", default=0)
 
     parser.add_argument('--dataset_dir', type=str, default='Integration_EAT/data/')

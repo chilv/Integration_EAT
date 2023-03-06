@@ -24,7 +24,7 @@ for i in ["F", "B"]:
         for k in ["H", "K", "A"]:
             codename_list.append(j+i+k)
 
-ENV_NUMS = 100  #测试环境数
+ENV_NUMS = 1024  #测试环境数
 
 def test_ppo(args, env, train_cfg, faulty_tag = -1, flawed_rate = 1):
     """在单次循环中
@@ -205,17 +205,17 @@ if __name__ == '__main__':
     #测试EAT======================================================================
     #loading EAT model
     # loading pre_record stds,means...
-    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO/")
-    state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
+    model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_09/")
+    state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), None, None#, np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
     pass_args = {"state_mean":state_mean, "state_std":state_std, "body_mean":body_mean, "body_std":body_std}
     
     state_dim = 48
     act_dim = 12
     body_dim = 12	
 
-    context_len = 20      # K in decision transformer
+    context_len = 50      # K in decision transformer
     n_blocks = 6            # num of transformer blocks
-    embed_dim = 128          # embedding (hidden) dim of transformer 
+    embed_dim = 256          # embedding (hidden) dim of transformer 
     n_heads = 1              # num of transformer heads
     dropout_p = 0.1          # dropout probability
     device = torch.device(args.sim_device)
@@ -249,7 +249,7 @@ if __name__ == '__main__':
     EAT_df = pd.DataFrame(EAT_table)
     EAT_df.index = codename_list
     EAT_df.columns = np.arange(0.0, 1.0, 0.1)
-    EAT_res = EAT_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT_test.csv"), mode='w')
+    EAT_res = EAT_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/tables/fualty_EAT_09_small.csv"), mode='w')
     # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT2.csv"), EAT_table, delimiter=',')
     #测试EAT结束===================================================================
     

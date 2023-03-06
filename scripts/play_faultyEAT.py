@@ -53,14 +53,14 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     act_dim = 12
     body_dim = 12
 
-    context_len = 50      # K in decision transformer
+    context_len = 20      # K in decision transformer
     n_blocks = 6            # num of transformer blocks
-    embed_dim = 256          # embedding (hidden) dim of transformer #! 原值128 #512
+    embed_dim = 128          # embedding (hidden) dim of transformer #! 原值128 #512
     n_heads = 1              # num of transformer heads
     dropout_p = 0.1          # dropout probability
 
     print("loading pre_record stds,means...")
-    model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_08/")
+    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO2_01/")
     # model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
     state_mean, state_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
     # state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
@@ -69,7 +69,7 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     #prepare envs
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 25)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 50)
     env_cfg.terrain.num_rows = 5
     env_cfg.terrain.num_cols = 5
     env_cfg.terrain.curriculum = False
@@ -102,7 +102,7 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
             # body_std=body_std
             ).to(device)
     model.load_state_dict(torch.load(
-        os.path.join(model_path,"model_best.pt")
+        os.path.join(model_path,"model_best.pt"), map_location = "cuda:0"
     ))
     model.eval()
     #====================================================================================
@@ -117,19 +117,15 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     img_idx = 0
     
     #init eval para
-    eval_batch_size = 25  # envs
+    eval_batch_size = 50  # envs
     max_test_ep_len=1000    #iters
     nobody = False
-    body_target = [1 for _ in range(12)]
-    if (faulty_tag != -1):
-        body_target[faulty_tag] = flawed_rate
     results = {}
     total_reward = 0
     total_timesteps = 0
 
     state_dim = 48
     act_dim = 12
-    body_dim = len(body_target)
     state_mean = torch.from_numpy(state_mean).to(device)
     state_std = torch.from_numpy(state_std).to(device)
     # body_mean = torch.from_numpy(body_mean).to(device)
@@ -138,6 +134,8 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
     timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
 
+    
+    
     with torch.no_grad():
         if True:
             # zeros place holders
@@ -146,7 +144,12 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
             states = torch.zeros((eval_batch_size, max_test_ep_len, state_dim),
                                 dtype=torch.float32, device=device)
 
-            body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
+            body_oringe = [1 for _ in range(12)]
+            body_dim = len(body_oringe)
+            
+            # if (faulty_tag != -1):
+            #     body_oringe[faulty_tag] = flawed_rate
+            body_target = torch.tensor(body_oringe, dtype=torch.float32, device=device)
             # body_target = (torch.tensor(body_target, dtype=torch.float32, device=device) - body_mean) / body_std
             bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32)
 
@@ -161,6 +164,33 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
             for t in range(max_test_ep_len):
 
                 total_timesteps += 1
+                # test step switch:
+                if t < max_test_ep_len/5:
+                    faulty_taget = -1
+                # elif t<max_test_ep_len*2/5:
+                #     faulty_taget = 11
+                #     body_target = body_oringe.copy()
+                #     body_target[faulty_taget] = flawed_rate
+                #     body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
+                #     bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32)
+                # elif t<max_test_ep_len*3/5:
+                #     faulty_taget = 8
+                #     body_target = body_oringe.copy()
+                #     body_target[faulty_taget] = flawed_rate
+                #     body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
+                #     bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32)
+                # elif t<max_test_ep_len*4/5:
+                #     faulty_taget = 5
+                #     body_target = body_oringe.copy()
+                #     body_target[faulty_taget] = flawed_rate
+                #     body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
+                #     bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32)
+                else:
+                    faulty_taget = faulty_tag
+                    body_target = body_oringe.copy()
+                    body_target[faulty_taget] = flawed_rate
+                    body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
+                    bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32)
 
                 states[:,t,:] = running_state
                 states[:,t,:] = (states[:,t,:] - state_mean) / state_std
@@ -189,12 +219,10 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
                     act = act_preds[:, -1].detach()
 
                 #let one joint or leg be disabled
-                act = disable_leg(act.detach(), target="none", index=3)
+                # act = disable_leg(act.detach(), target="none", index=3)
                 # running_state, running_reward, done, _ = env.step(act.cpu())
                 
-                running_state, _, running_reward, done, infos = env.step(act, [faulty_tag], flawed_rate)
-                # if t < max_test_ep_len/8:
-                    # running_state, _, running_reward, done, infos = env.step(act, [-1])
+                running_state, _, running_reward, done, infos = env.step(act, [faulty_taget], flawed_rate) #if t > max_test_ep_len/8 else env.step(act, [-1])
                 
                 
                 # if RECORD_FRAMES:
@@ -228,7 +256,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--dataset', type=str, default='fid234-1')
 
-    parser.add_argument('--max_eval_ep_len', type=int, default=1000)
+    # parser.add_argument('--max_eval_ep_len', type=int, default=1000)
     parser.add_argument('--num_eval_ep', type=int, default=1000)
     parser.add_argument('--noise', type=int, help="noisy environemnt for evaluation", default=0)
 
@@ -263,4 +291,4 @@ if __name__ == "__main__":
     
     RECORD_FRAMES = False
     MOVE_CAMERA = False
-    play(args, 8, 0.25)
+    play(args, 11, 0)

@@ -273,7 +273,7 @@ def evaluate_on_env_batch(model, device, context_len, env, rtg_target, rtg_scale
             # running_reward = 0
             running_reward = torch.zeros((eval_batch_size, ),
                                 dtype=torch.float32, device=device)
-            running_rtg = rtg_target*np.ones((eval_batch_size,), dtype=np.float16) / rtg_scale
+            # running_rtg = rtg_target*np.ones((eval_batch_size,), dtype=np.float16) / rtg_scale
 
             gif_images = []
             total_rewards = np.zeros(eval_batch_size)
