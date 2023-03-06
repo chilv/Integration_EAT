@@ -78,7 +78,7 @@ class LeggedRobot(BaseTask):
 
         self.action_scale = self.cfg.control.action_scale
 
-    def step(self, actions, flawed_joint = [-1], flawed_rate = 1, embodys = None):
+    def step(self, actions, embodys = None, flawed_joint = [-1], flawed_rate = 1):
         """ Apply actions, simulate, call self.post_physics_step()
 
         Args:
