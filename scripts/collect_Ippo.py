@@ -109,7 +109,7 @@ def play(args, env, train_cfg, fault_id = -1):
 
 	data_set = {'observations':[], 'bodys':[], 'next_observations':[],  'actions':[], 'rewards':[], 'terminals':[], 'timeouts':[]}
 
-	output_file = os.path.join(SAVE_DIR, "Trajectory3")
+	output_file = os.path.join(SAVE_DIR, "Trajectory_IPPO_3")
 	if not os.path.exists(output_file):
 		os.mkdir(output_file)
 	file_name = f"PPO_I_{fault_id}.pkl"
@@ -155,7 +155,7 @@ def play(args, env, train_cfg, fault_id = -1):
 		obs_ori = obs.cpu().detach().numpy()[:,:48]
 		bodys_ori = bodys.cpu().detach().numpy()
 		obs, _ , rews, dones, infos = env.step(actions.detach(),bodys)
-		bodys = step_body(bodys, fault_id, rate = 0.04, threshold= 0.4, descend=0.005)
+		bodys = step_body(bodys, fault_id, rate = 0.06, threshold= 0.005)
 		data_set['observations'].append(obs_ori)
 		data_set['bodys'].append(bodys_ori)
 		data_set['rewards'].append(rews.cpu().detach().numpy())

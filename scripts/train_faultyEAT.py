@@ -129,7 +129,7 @@ def train(args):
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
     env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]
-    env, _ = task_registry.make_env(name = args.task, args = env_args, env_cfg = env_cfg)
+    env, _ = task_registry.make_env(name = env_args.task, args = env_args, env_cfg = env_cfg)
     # env = A1(num_envs=args.num_eval_ep, noise=args.noise)#这里eval_env编译不通过，因为注册表中没有该环境，暂时跳过试一下
     
     # saves model and csv in this directory
@@ -308,11 +308,12 @@ def train(args):
             actions = actions.to(device)        # B x T x act_dim
             # returns_to_go = returns_to_go.to(device).unsqueeze(dim=-1) # B x T x 1
             body = body.to(device).type(actions.dtype) # B x T x body_dim
+            body_target = torch.clone(body).detach().to(device)
             traj_mask = traj_mask.to(device)    # B x T
             action_target = torch.clone(actions).detach().to(device)
 
             if not args.nobody:
-                state_preds, action_preds, return_preds = model.forward(
+                state_preds, action_preds, body_preds = model.forward(
                                                                 timesteps=timesteps,
                                                                 states=states,
                                                                 actions=actions,
@@ -327,9 +328,13 @@ def train(args):
             # only consider non padded elements
             action_preds = action_preds.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             action_target = action_target.view(-1, act_dim)[traj_mask.view(-1,) > 0]
-
+            body_preds = body_preds.view(-1, body_dim)[traj_mask.view(-1,)>0]
+            body_target = body_target.view(-1, body_dim)[traj_mask.view(-1,)>0]
             action_loss = F.mse_loss(action_preds, action_target, reduction='mean')
+            # print(body_target.shape, body_preds.shape)
+            body_loss = F.mse_loss(body_preds, body_target, reduction='mean')
 
+            Total_loss = body_loss + action_loss
             # print("=======================TARGET======================")
             # print(action_target.detach())
             # print("=======================PRED======================")
@@ -338,14 +343,16 @@ def train(args):
             # print(action_loss.detach())
 
             optimizer.zero_grad()
-            action_loss.backward()
+            Total_loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
             optimizer.step()
             scheduler.step()
 
             log_action_losses.append(action_loss.detach().cpu().item())
 
-            wandb.log({"Loss": action_loss.detach().cpu().item()})
+            wandb.log({"Action loss": action_loss.detach().cpu().item(), 
+                       "Body loss": body_loss.detach().cpu().item(),
+                       "Total loss": Total_loss.detach().cpu().item()})
 
             total_updates += num_updates_per_iter
 
@@ -436,7 +443,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dataset', type=str, default='flawedppo')
+    parser.add_argument('--dataset', type=str, default='IPPO3')
 
     parser.add_argument('--max_eval_ep_len', type=int, default=1000)
     parser.add_argument('--num_eval_ep', type=int, default=10)
@@ -463,7 +470,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--wandboff', default=False, action='store_true', help="Disable wandb")
 
-    parser.add_argument('--device', type=str, default='cuda:1')
+    parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--note', type=str, default='')
     parser.add_argument('--seed', type=int, default=66)
 

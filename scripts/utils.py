@@ -373,27 +373,32 @@ def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=1, d
             bodys[i, joint] = random.random() if flawed_rate == -1 else flawed_rate
     return bodys, t
 
-def step_body(bodys, joint, rate = 0.004, threshold = 1, descend = 0.005): #each joint has a flaw rate to be partial of itself.
+def step_body(bodys, joint, rate = 0.004, threshold = 0): #each joint has a flaw rate to be partial of itself.
     '''
     joint: (num_envs, ,) OR a single int, 每个环境对应的1个坏损关节 
         #TODO: joint will become (num_envs, num), num means the number of flawed joints.
     rate: 每个step，有rate的概率使得关节扭矩往下掉，剩余扭矩比例随机
-    threshold， descend: 在剩余扭矩高于threshold时，每次减少 descend 
+    threshold， 在剩余扭矩高于threshold时，重置到随机的一个扭矩。
     '''        
     num_envs = bodys.shape[0]
     t = torch.rand(num_envs)
-    t = (t<rate) * random.random()
+    t = (t<rate) * torch.rand(num_envs)
     t = 1 - t
     t = t.to(bodys.device)
     if type(joint) == torch.Tensor:
         joint = joint.squeeze()
+
     bodys[:, joint] *= t
-    if type(joint)==int:
-        joint = torch.ones(num_envs) * joint
-    if threshold <1 and descend>0:
-        for idx, j in enumerate(joint): #This Part will slow down the speed a lot! Considering to remove it at some time. OR Re-Implement it in a fancy way
-            if bodys[idx, j] > threshold:
-                bodys[idx, j] -= descend
+
+    if threshold >0: # Here we assume that joint must be a single int
+        t = (bodys[:,joint] < threshold) * torch.rand(num_envs, device = bodys.device)
+        t = t.to(bodys.device)
+        t = 1/(1 - t)
+        bodys[:,joint] *= t
+        bodys = torch.min(bodys, torch.ones_like(bodys))
+        # for idx, j in enumerate(joint): #This Part will slow down the speed a lot! Considering to remove it at some time. OR Re-Implement it in a fancy way
+        #     if bodys[idx, j] < threshold:
+        #         bodys[idx, j] = random.random()
     # print(bodys[:10,:])
     return bodys
 
@@ -500,10 +505,15 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
             states[:,t,:] = running_state
             states[:,t,:] = (states[:,t,:] - state_mean) / state_std
 
-            bodys[:,t,:] = running_body
+            # bodys[:,t,:] = running_body
 
             if t < context_len:
                 if not nobody:
+                    _, _, body_preds = model.forward(timesteps[:,:context_len],
+                                                states[:,:context_len],
+                                                actions[:,:context_len],
+                                                body= bodys[:,:context_len])
+                    bodys[:,t] = body_preds[:,t].detach()
                     _, act_preds, _ = model.forward(timesteps[:,:context_len],
                                                 states[:,:context_len],
                                                 actions[:,:context_len],
@@ -519,6 +529,11 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
                     act = prompt_policy(running_state.to(device))
             else:
                 if not nobody:
+                    _, _, body_preds = model.forward(timesteps[:, t-context_len+1:t+1],
+                                            states[:, t-context_len+1:t+1],
+                                            actions[:, t-context_len+1:t+1],
+                                            body=bodys[:, t-context_len+1:t+1])
+                    bodys[:,t] = body_preds[:,-1].detach()
                     _, act_preds, _ = model.forward(timesteps[:, t-context_len+1:t+1],
                                             states[:, t-context_len+1:t+1],
                                             actions[:, t-context_len+1:t+1],
@@ -529,14 +544,14 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
                                             actions[:,t-context_len+1:t+1])
                 act = act_preds[:, -1].detach()
 
-            running_state, _, running_reward, done, _ = env.step(act.cpu(), running_body)
+            running_state, _, running_reward, done, _ = env.step(act.cpu(), embodys=running_body)
 
             actions[:,t] = act
             total_reward += np.sum(running_reward.detach().cpu().numpy())
             total_rewards += running_reward.detach().cpu().numpy() * (dones == 0)
             dones += done.detach().cpu().numpy()
 
-            running_body = step_body(running_body, joints, rate = 0.04, threshold=0.4, descend= 0.005)
+            running_body = step_body(running_body, joints, rate = 0.04, threshold=0)
                     
         #             # pdb.set_trace()
         #             if t < context_len:
@@ -1026,6 +1041,13 @@ def get_dataset_config(dataset):
         datafile = "Trajectory_IPPO_2"
         i_magic_list = [f"PPO_I_{x}" for x in range(12)]
         eval_body_vec = [1 for _ in range(12)]
+        
+    if dataset == "IPPO3":
+        datafile = "Trajectory_IPPO_3"
+        i_magic_list = [f"PPO_I_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+
+
     if dataset == "faulty":
         datafile = "P20F10000-vel0.5-v0"
         i_magic_list = ["none", "LFH", "LFK", "RFH", "RFK", "LBH", "LBK", "LBA", "RBH", "RBK", "RBA"]

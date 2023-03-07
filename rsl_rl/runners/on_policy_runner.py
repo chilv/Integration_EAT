@@ -118,7 +118,7 @@ class OnPolicyRunner:
                     #------------------------
                     obs, privileged_obs, rewards, dones, infos = self.env.step(actions, bodys)
                     # pdb.set_trace()
-                    bodys = step_body(bodys, joints, 0.004, 1, 0.05)
+                    bodys = step_body(bodys, joints, 0.004)
                     critic_obs = privileged_obs if privileged_obs is not None else obs
                     obs, critic_obs, rewards, dones = obs.to(self.device), critic_obs.to(self.device), rewards.to(self.device), dones.to(self.device)
                     self.alg.process_env_step(rewards, dones, infos)

@@ -46,8 +46,8 @@ def test_ppo(args, env, train_cfg, faulty_tag = -1, flawed_rate = 1):
     #     train_cfg.runner.load_run = f""
     # else:
     #     train_cfg.runner.load_run = f"{faulty_tag}"
-    train_cfg.runner.load_run = "PPO_Models"
-    train_cfg.runner.checkpoint = faulty_tag
+    train_cfg.runner.load_run = "Mar01_09-44-06_"
+    train_cfg.runner.checkpoint = 1111
     log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
     #判断模型文件是否存在 若不存在则报错弹出
     # if not os.path.exists(os.path.join(log_root,train_cfg.runner.load_run)):
@@ -190,21 +190,26 @@ if __name__ == '__main__':
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     
     #测试ppo======================================================================
-    # ppo_row_names = [0, 0.25, 0.5, 0.75]
-    # ppo_row_names = np.arange(0,1,0.1)
-    # out_table = np.zeros((12,10))
+    ppo_row_names = [0, 0.25, 0.5, 0.75]
+    ppo_row_names = np.arange(0,1,0.1)
+    out_table = np.zeros((12,10))
+    t = 0
+    for j in ppo_row_names:
+        out_table[args.joint, t] , _= test_ppo(args, env, train_cfg, args.joint, j)
+        t += 1
+
     # for i in range(12):#12条断腿情况
     #     # for j in range (0, 0.8, 0.1):
     #     t = 0
     #     for j in ppo_row_names:            
     #         out_table[i, t], _ = test_ppo(args, env, train_cfg, i, j)
     #         t += 1
-    # # out_table[:,-1],_ = test_ppo(args, env, train_cfg, -1, 1) #测完好情况
-    # ppo_df = pd.DataFrame(out_table)
-    # ppo_df.index = codename_list
-    # # ppo_df.columns = [0,0.25,0.5, 0.75, 1.0]
-    # ppo_df.columns = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-    # ppo_res = ppo_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/IPPOS.csv"), mode='w')
+    # out_table[:,-1],_ = test_ppo(args, env, train_cfg, -1, 1) #测完好情况
+    ppo_df = pd.DataFrame(out_table)
+    ppo_df.index = codename_list
+    # ppo_df.columns = [0,0.25,0.5, 0.75, 1.0]
+    ppo_df.columns = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    ppo_res = ppo_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/IPPO11.csv"), mode='w')
     # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/IPPO.csv"), out_table, delimiter=',')
     #测试ppo结束===================================================================
     
@@ -212,59 +217,59 @@ if __name__ == '__main__':
     #测试EAT======================================================================
     #loading EAT model
     # loading pre_record stds,means...
-    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO_19/")
+    # model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO_19/")
     
-    state_mean, state_std= np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
-    if not args.not_use_body_norm:
-        body_mean, body_std = np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
-    else:
-        body_mean, body_std = None, None
-    pass_args = {"state_mean":state_mean, "state_std":state_std, "body_mean":body_mean, "body_std":body_std}
-    
-    # state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
+    # state_mean, state_std= np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
+    # if not args.not_use_body_norm:
+    #     body_mean, body_std = np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
+    # else:
+    #     body_mean, body_std = None, None
     # pass_args = {"state_mean":state_mean, "state_std":state_std, "body_mean":body_mean, "body_std":body_std}
     
-    state_dim = 48
-    act_dim = 12
-    body_dim = 12	
-
-    context_len = 20      # K in decision transformer
-    n_blocks = 6            # num of transformer blocks
-    embed_dim = 128          # embedding (hidden) dim of transformer 
-    n_heads = 1              # num of transformer heads
-    dropout_p = 0.1          # dropout probability
-    device = torch.device(args.sim_device)
-    EAT_model = LeggedTransformerPro(
-            body_dim=body_dim,
-            state_dim=state_dim,
-            act_dim=act_dim,
-            n_blocks=n_blocks,
-            h_dim=embed_dim,
-            context_len=context_len,
-            n_heads=n_heads,
-            drop_p=dropout_p,
-            state_mean=state_mean,
-            state_std=state_std,
-            body_mean=body_mean,
-            body_std=body_std
-            ).to(device)
-    EAT_model.load_state_dict(torch.load(
-        os.path.join(model_path,"model_best.pt")
-    , map_location=device))
-    EAT_model.eval()
+    # # state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
+    # # pass_args = {"state_mean":state_mean, "state_std":state_std, "body_mean":body_mean, "body_std":body_std}
     
-    #testing
-    EAT_rows = np.arange(0.0, 1.0, 0.1)
-    EAT_table = np.zeros((12,10))
-    for i in range(12):#12条断腿情况
-        # for j in range (0, 0.8, 0.1):
-        for j in EAT_rows:            
-            EAT_table[i, np.where(EAT_rows==j)], _ = test_EAT(args, env, EAT_model, pass_args, i, j)
-    EAT_table[:,-1],_ = test_EAT(args, env, EAT_model, pass_args, -1, 1) #测完好情况
-    EAT_df = pd.DataFrame(EAT_table)
-    EAT_df.index = codename_list
-    EAT_df.columns = np.arange(0.0, 1.0, 0.1)
-    EAT_res = EAT_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/EAT_IPPO_ORIGIN.csv"), mode='w')
+    # state_dim = 48
+    # act_dim = 12
+    # body_dim = 12	
+
+    # context_len = 20      # K in decision transformer
+    # n_blocks = 6            # num of transformer blocks
+    # embed_dim = 128          # embedding (hidden) dim of transformer 
+    # n_heads = 1              # num of transformer heads
+    # dropout_p = 0.1          # dropout probability
+    # device = torch.device(args.sim_device)
+    # EAT_model = LeggedTransformerPro(
+    #         body_dim=body_dim,
+    #         state_dim=state_dim,
+    #         act_dim=act_dim,
+    #         n_blocks=n_blocks,
+    #         h_dim=embed_dim,
+    #         context_len=context_len,
+    #         n_heads=n_heads,
+    #         drop_p=dropout_p,
+    #         state_mean=state_mean,
+    #         state_std=state_std,
+    #         body_mean=body_mean,
+    #         body_std=body_std
+    #         ).to(device)
+    # EAT_model.load_state_dict(torch.load(
+    #     os.path.join(model_path,"model_best.pt")
+    # , map_location=device))
+    # EAT_model.eval()
+    
+    # #testing
+    # EAT_rows = np.arange(0.0, 1.0, 0.1)
+    # EAT_table = np.zeros((12,10))
+    # for i in range(12):#12条断腿情况
+    #     # for j in range (0, 0.8, 0.1):
+    #     for j in EAT_rows:            
+    #         EAT_table[i, np.where(EAT_rows==j)], _ = test_EAT(args, env, EAT_model, pass_args, i, j)
+    # EAT_table[:,-1],_ = test_EAT(args, env, EAT_model, pass_args, -1, 1) #测完好情况
+    # EAT_df = pd.DataFrame(EAT_table)
+    # EAT_df.index = codename_list
+    # EAT_df.columns = np.arange(0.0, 1.0, 0.1)
+    # EAT_res = EAT_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/EAT_IPPO_ORIGIN.csv"), mode='w')
     # # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT2.csv"), EAT_table, delimiter=',')
     #测试EAT结束===================================================================
     
