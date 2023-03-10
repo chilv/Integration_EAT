@@ -263,7 +263,7 @@ class LeggedTransformer(nn.Module):
 
 class LeggedTransformerPro(nn.Module):
     def __init__(self, body_dim, state_dim, act_dim, n_blocks, h_dim, context_len,
-                 n_heads, drop_p, max_timestep=4096, state_mean=None, state_std=None, body_mean=None, body_std=None):
+                 n_heads, drop_p, max_timestep=4096, state_mean=None, state_std=None, body_mean=None, body_std=None, tanh = False):
         super().__init__()
 
         self.body_dim = body_dim
@@ -291,10 +291,19 @@ class LeggedTransformerPro(nn.Module):
         self.embed_action = torch.nn.Linear(act_dim, h_dim)
         
         #! 此处根据余琛学长意见去掉最后一层的action，原本这一层会让他的机器狗在实机上表现得更好
-        use_action_tanh = False # True for continuous actions
+        use_action_tanh = tanh # True for continuous actions
 
         ### prediction heads
-        self.predict_body = torch.nn.Linear(h_dim, body_dim)
+        if use_action_tanh:
+            self.predict_body_cls = nn.Sequential(
+                *([nn.Linear(h_dim, body_dim)] + ([nn.Tanh()] if use_action_tanh else []))
+            )
+            self.predict_body_reg = nn.Sequential(
+                *([nn.Linear(h_dim, body_dim)] + ([nn.Tanh()] if use_action_tanh else []))
+            )
+        else:
+            self.predict_body_cls = nn.Linear(h_dim, body_dim)
+            self.predict_body_reg = nn.Linear(h_dim, body_dim)
         self.predict_state = torch.nn.Linear(h_dim, state_dim)
         self.predict_action = nn.Sequential(
             *([nn.Linear(h_dim, act_dim)] + ([nn.Tanh()] if use_action_tanh else []))
@@ -345,11 +354,12 @@ class LeggedTransformerPro(nn.Module):
 
         # get predictions
 
-        return_preds = self.predict_body(h[:,0])     # predict next rtg given s
+        return_preds_cls = self.predict_body_cls(h[:,0])     # predict next rtg given s
+        return_preds_reg = self.predict_body_reg(h[:,0])
         state_preds = self.predict_state(h[:,2])    # predict next state given s, r, a
         action_preds = self.predict_action(h[:,1])  # predict action given s, r
         
-        return state_preds, action_preds, return_preds
+        return state_preds, action_preds, (return_preds_cls, return_preds_reg)
 
 class MLPBCModel(nn.Module):
     

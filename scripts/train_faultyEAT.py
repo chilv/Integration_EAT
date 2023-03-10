@@ -107,10 +107,12 @@ def train(args):
     dropout_p = args.dropout_p          # dropout probability
 
 
-    datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config(args.dataset)
+    datafile_list, i_magic_list, eval_body_vec, eval_env = get_dataset_config(args.dataset)
     
     # file_list = [f"a1magic{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
-    file_list = [os.path.join(datafile, f"{i_magic}.pkl") for i_magic in i_magic_list]
+    file_list = []
+    for datafile in datafile_list:
+        file_list.extend([os.path.join(datafile, f"{i_magic}.pkl") for i_magic in i_magic_list])
     dataset_path_list_raw = [os.path.join(args.dataset_dir, d) for d in file_list]
     dataset_path_list = []
     for p in dataset_path_list_raw:
@@ -264,6 +266,7 @@ def train(args):
                     drop_p=dropout_p,
                     state_mean=state_mean,
                     state_std=state_std,
+                    tanh = True
                     # body_mean=body_mean,
                     # body_std=body_std
                 ).to(device)
@@ -295,6 +298,7 @@ def train(args):
         # pdb.set_trace()
 
         log_action_losses = []
+        log_body_losses = []
         model.train()
 
         for timesteps, states, actions, body, traj_mask in iter(traj_data_loader):
@@ -319,6 +323,21 @@ def train(args):
                                                                 actions=actions,
                                                                 body=body
                                                             )
+                # body_preds_2 = body_preds.view(-1, body_dim)[traj_mask.view(-1,)>0]
+                # body_loss = 2 * F.mse_loss(body_preds_2, body_target, reduction='mean')
+                # optimizer.zero_grad()
+                # body_loss.backward()
+                # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
+                # optimizer.step()
+                # scheduler.step()
+
+                # body[:, -1] = body_preds[:,-1].detach()
+                # state_preds, action_preds, _ = model.forward(
+                #                                                 timesteps=timesteps,
+                #                                                 states=states,
+                #                                                 actions=actions,
+                #                                                 body=body
+                #                                             )
             else:
                 state_preds, action_preds, return_preds = model.forward(
                                                                 timesteps=timesteps,
@@ -326,13 +345,27 @@ def train(args):
                                                                 actions=actions
                                                             )
             # only consider non padded elements
+            body_target = body_target.view(-1, body_dim)[traj_mask.view(-1,)>0]
+            # gt_cls = torch.zeros_like(body_target)
+            tmp = body_target.argmin(dim=1)
+            gt_cls = torch.nn.functional.one_hot(tmp, body_dim).to(device)
+            # print("gt_cls:", gt_cls[:5])
+            gt_reg = body_target.min(dim=1).values.to(device)
+            # print("gt_reg:", gt_reg)
+            pred_cls, pred_reg = body_preds
+
+            # print("gt_reg shape:", gt_reg)
+            # print(pred_reg.view(-1,body_dim)[traj_mask.view(-1,)>0].shape, tmp.unsqueeze(-1).shape)
+            # print("pred_shape:",torch.gather(pred_reg.view(-1,body_dim)[traj_mask.view(-1,)>0], 1, tmp.unsqueeze(-1)))
+            body_loss = 100 * F.cross_entropy(pred_cls.view(-1, body_dim)[traj_mask.view(-1,)>0], gt_cls.float()) + \
+                    F.mse_loss(gt_reg, torch.gather(pred_reg.view(-1,body_dim)[traj_mask.view(-1,)>0], 1, tmp.unsqueeze(-1)).squeeze(-1), reduction="mean")
+
             action_preds = action_preds.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             action_target = action_target.view(-1, act_dim)[traj_mask.view(-1,) > 0]
-            body_preds = body_preds.view(-1, body_dim)[traj_mask.view(-1,)>0]
-            body_target = body_target.view(-1, body_dim)[traj_mask.view(-1,)>0]
+            
             action_loss = F.mse_loss(action_preds, action_target, reduction='mean')
             # print(body_target.shape, body_preds.shape)
-            body_loss = F.mse_loss(body_preds, body_target, reduction='mean')
+            # body_loss = 10 * F.mse_loss(body_preds, body_target, reduction='mean')
 
             Total_loss = body_loss + action_loss
             # print("=======================TARGET======================")
@@ -343,16 +376,17 @@ def train(args):
             # print(action_loss.detach())
 
             optimizer.zero_grad()
+            # action_loss.backward()
             Total_loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
             optimizer.step()
             scheduler.step()
 
             log_action_losses.append(action_loss.detach().cpu().item())
-
+            log_body_losses.append(body_loss.detach().cpu().item())
             wandb.log({"Action loss": action_loss.detach().cpu().item(), 
                        "Body loss": body_loss.detach().cpu().item(),
-                       "Total loss": Total_loss.detach().cpu().item()})
+                       })
 
             total_updates += num_updates_per_iter
 
@@ -374,6 +408,7 @@ def train(args):
             # eval_avg_reward = eval_avg_ep_len = eval_d4rl_score = 1000
             
             mean_action_loss = np.mean(log_action_losses)
+            mean_body_loss = np.mean(log_body_losses)
             time_elapsed = str(datetime.now().replace(microsecond=0) - start_time)
 
 
@@ -381,6 +416,7 @@ def train(args):
                     "time elapsed: " + time_elapsed  + '\n' +
                     "num of updates: " + str(total_updates) + '\n' +
                     "action loss: " +  format(mean_action_loss, ".5f") + '\n' +
+                    "body loss: " + format(mean_body_loss, ".5f") + '\n' + 
                     "eval avg reward: " + format(eval_avg_reward, ".5f") + '\n' +
                     "eval avg ep len: " + format(eval_avg_ep_len, ".5f") + 
                     "eval score: " + format(eval_d4rl_score, ".5f")
@@ -391,7 +427,7 @@ def train(args):
             # print("")
 
             wandb.log({"Evaluation Score": eval_avg_reward, "Episode Length": eval_avg_ep_len, "D4RL Score": eval_d4rl_score, 
-                    "Average Loss": mean_action_loss, "Total Steps": total_updates})
+                    "Average Loss": mean_action_loss + mean_body_loss, "Total Steps": total_updates})
             
             log_data = [time_elapsed, total_updates, mean_action_loss,
                         eval_avg_reward, eval_avg_ep_len,
@@ -443,7 +479,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dataset', type=str, default='IPPO3')
+    parser.add_argument('--dataset', type=str, default='IPPO')
 
     parser.add_argument('--max_eval_ep_len', type=int, default=1000)
     parser.add_argument('--num_eval_ep', type=int, default=10)
@@ -470,9 +506,9 @@ if __name__ == "__main__":
 
     parser.add_argument('--wandboff', default=False, action='store_true', help="Disable wandb")
 
-    parser.add_argument('--device', type=str, default='cuda:0')
+    parser.add_argument('--device', type=str, default='cuda:7')
     parser.add_argument('--note', type=str, default='')
-    parser.add_argument('--seed', type=int, default=66)
+    parser.add_argument('--seed', type=int, default=676)
 
     # args = parser.parse_args()
     args, unknown = parser.parse_known_args()
