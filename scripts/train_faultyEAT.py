@@ -20,57 +20,13 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from utils import D4RLTrajectoryDataset, evaluate_on_env,  evaluate_on_env_batch_body, get_dataset_config #, get_d4rl_normalized_score,
+from utils import D4RLTrajectoryDataset, evaluate_on_env,  evaluate_on_env_batch_body, get_dataset_config, partial_traj #, get_d4rl_normalized_score,
 from model import DecisionTransformer, LeggedTransformer, LeggedTransformerPro, MLPBCModel
 import wandb
 # from singlea1 import A1
 # from a1wrapper import A1
-from legged_gym.utils import task_registry, Logger
+from legged_gym.utils import task_registry, Logger 
 from tqdm import trange, tqdm
-
-def partial_traj(dataset_path_list, context_len=20, rtg_scale=1000, body_dim=12):
-    '''
-    当轨迹过长的时候，为照顾cpu运算负荷需要将数据集分几段加载，此函数处理一段，可以通过简单的复用调用来完成
-    -------------
-    输入：
-    dataset_path_list: list of trajs
-        一组轨迹的存储路径
-    batch_size: int
-        training batch size
-    context_len: int
-        transformer需要读取的上下文长度 
-    rtg_scale: int 
-        normalize returns to go
-    body_dim: int
-        number of body parts
-    
-    
-    输出：
-    traj_data_loader：DataLoader objects
-        用以学习的轨迹对象
-    state_mean,state_std: float
-        状态值的均值和方差
-    body_mean,body_std: float
-        body值的均值方差
-    '''
-    big_list = []
-    for pkl in tqdm(dataset_path_list):  
-        with open(pkl, 'rb') as f:
-            thelist = pickle.load(f)
-
-        assert "body" in thelist[0]
-        if args.cut == 0:
-            big_list = big_list + thelist
-        else:
-            big_list = big_list + thelist[:args.cut]
-
-    traj_dataset = D4RLTrajectoryDataset(big_list, context_len, rtg_scale, leg_trans_pro=True)
-    assert body_dim == traj_dataset.body_dim
-    
-    state_mean, state_std = traj_dataset.get_state_stats(body=False)
-    
-    return traj_dataset, state_mean, state_std#, body_mean, body_std
-
 
 def train(args):
 
@@ -129,7 +85,7 @@ def train(args):
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
     env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]
-    env, _ = task_registry.make_env(name = args.task, args = env_args, env_cfg = env_cfg)
+    env, _ = task_registry.make_env(name = env_args.task, args = env_args, env_cfg = env_cfg)
     # env = A1(num_envs=args.num_eval_ep, noise=args.noise)#这里eval_env编译不通过，因为注册表中没有该环境，暂时跳过试一下
     
     # saves model and csv in this directory
@@ -191,7 +147,7 @@ def train(args):
     print("Loding paths for each robot model...")
     #加载轨迹部分
     if len(dataset_path_list) < 103:
-        traj_dataset, state_mean, state_std = partial_traj(dataset_path_list)
+        traj_dataset, state_mean, state_std = partial_traj(dataset_path_list, args)
     else:   #当轨迹过多时进行拆分
         dataset_list, state_mean_list, state_std_list, xn = [],[],[],[]
         print(f"divide trajs to {math.ceil(len(dataset_path_list)/12.0)} parts")
@@ -291,6 +247,7 @@ def train(args):
     inner_bar = tqdm(range(num_updates_per_iter), leave = False)
     state_mean = model.state_mean.to(device)
     state_std = model.state_std.to(device)
+    # body_preds = None
     for epoch in trange(n_epochs):
         # pdb.set_trace()
 
@@ -302,24 +259,26 @@ def train(args):
 
             timesteps = timesteps.to(device)    # B x T
             states = states.to(device)          # B x T x state_dim
-
+            # if body_preds is None:
+            #     body_preds = torch.zero_like(body)
             # states = (states - state_mean)/state_std
 
             actions = actions.to(device)        # B x T x act_dim
             # returns_to_go = returns_to_go.to(device).unsqueeze(dim=-1) # B x T x 1
-            body = body.to(device).type(actions.dtype) # B x T x body_dim
+            body = body.to(device)  # B x T x body_dim
+            body_target = torch.clone(body).detach().to(device)
             traj_mask = traj_mask.to(device)    # B x T
             action_target = torch.clone(actions).detach().to(device)
 
             if not args.nobody:
-                state_preds, action_preds, return_preds = model.forward(
+                state_preds, action_preds, body_preds = model.forward(
                                                                 timesteps=timesteps,
                                                                 states=states,
                                                                 actions=actions,
                                                                 body=body
                                                             )
             else:
-                state_preds, action_preds, return_preds = model.forward(
+                state_preds, action_preds, body_preds = model.forward(
                                                                 timesteps=timesteps,
                                                                 states=states,
                                                                 actions=actions
@@ -329,6 +288,7 @@ def train(args):
             action_target = action_target.view(-1, act_dim)[traj_mask.view(-1,) > 0]
 
             action_loss = F.mse_loss(action_preds, action_target, reduction='mean')
+            # body_loss = F.mse_loss(body_preds, body_target, reduction='mean')
 
             # print("=======================TARGET======================")
             # print(action_target.detach())
@@ -436,7 +396,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dataset', type=str, default='flawedppo')
+    parser.add_argument('--dataset', type=str, default='IPPO')
 
     parser.add_argument('--max_eval_ep_len', type=int, default=1000)
     parser.add_argument('--num_eval_ep', type=int, default=1024)      #事实上此参数决定了测试环境数量 原值10
@@ -463,12 +423,12 @@ if __name__ == "__main__":
 
     parser.add_argument('--wandboff', default=False, action='store_true', help="Disable wandb")
 
-    parser.add_argument('--device', type=str, default='cuda:1')
+    parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--note', type=str, default='')
     parser.add_argument('--seed', type=int, default=66)
 
     # args = parser.parse_args()
     args, unknown = parser.parse_known_args()
 
-    # args.wandboff = True    #当无法连接wandb时使用
+    args.wandboff = True    #当无法连接wandb时使用
     train(args)

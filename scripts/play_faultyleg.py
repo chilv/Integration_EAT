@@ -68,7 +68,7 @@ def disable_leg(actions, target:str ="joint", index:int = 2):
         
     return actions
 
-def play(args):
+def play(args, flawed_joint = -1, flawed_rate = 1):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 25)
@@ -86,8 +86,8 @@ def play(args):
     # load policy
     train_cfg.runner.resume = True
     # train_cfg.runner.load_run = "strange"
-    train_cfg.runner.load_run = "Feb21_11-00-17_LFA_again"
-    train_cfg.runner.checkpoint = "best"
+    train_cfg.runner.load_run = "PPO_Models"
+    train_cfg.runner.checkpoint = 5
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy = ppo_runner.get_inference_policy(device=env.device)
     
@@ -110,11 +110,16 @@ def play(args):
     rewbuffer = deque(maxlen=100)
     cur_episode_length = torch.zeros(env_cfg.env.num_envs, dtype=torch.float, device=args.sim_device)
     lengthbuffer = deque(maxlen=100)
+    bodydim = 12
+    
+    bodys = torch.ones(env_cfg.env.num_envs, bodydim)
+    bodys[:, flawed_joint] = flawed_rate     #后续泛化
+    bodys = bodys.to(env.device)
     
     for i in range(2*int(env.max_episode_length)):
-        actions = policy(obs.detach())
+        actions = policy(obs.detach(),bodys)
         # actions = disable_leg(actions, target="none", index=2)#let one joint or leg be disabled
-        obs, _, rews, dones, infos = env.step(actions.detach(), flawed_joint = [2], flawed_rate = 0)
+        obs, _, rews, dones, infos = env.step(actions.detach(), flawed_joint = [flawed_joint], flawed_rate = flawed_rate)
         
         cur_reward_sum += rews
         new_ids = (dones > 0).nonzero(as_tuple=False)
@@ -169,4 +174,4 @@ if __name__ == '__main__':
     RECORD_FRAMES = False
     MOVE_CAMERA = False
     args = get_args()
-    play(args)
+    play(args, 5, 0)

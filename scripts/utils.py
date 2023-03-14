@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 # from d4rl_infos import REF_MIN_SCORE, REF_MAX_SCORE, D4RL_DATASET_STATS
 import imageio
 from tqdm import tqdm
+# from legged_gym.utils import Logger
 
 def discount_cumsum(x, gamma):
     disc_cumsum = np.zeros_like(x)
@@ -29,6 +30,48 @@ def discount_cumsum(x, gamma):
 
 # def get_d4rl_dataset_stats(env_d4rl_name):
 #     return D4RL_DATASET_STATS[env_d4rl_name]
+def partial_traj(dataset_path_list, args, context_len=20, rtg_scale=1000, body_dim=12):
+    '''
+    当轨迹过长的时候，为照顾cpu运算负荷需要将数据集分几段加载，此函数处理一段，可以通过简单的复用调用来完成
+    -------------
+    输入：
+    dataset_path_list: list of trajs
+        一组轨迹的存储路径
+    batch_size: int
+        training batch size
+    context_len: int
+        transformer需要读取的上下文长度 
+    rtg_scale: int 
+        normalize returns to go
+    body_dim: int
+        number of body parts
+    
+    
+    输出：
+    traj_data_loader：DataLoader objects
+        用以学习的轨迹对象
+    state_mean,state_std: float
+        状态值的均值和方差
+    body_mean,body_std: float
+        body值的均值方差
+    '''
+    big_list = []
+    for pkl in tqdm(dataset_path_list):  
+        with open(pkl, 'rb') as f:
+            thelist = pickle.load(f)
+
+        assert "body" in thelist[0]
+        if args.cut == 0:
+            big_list = big_list + thelist
+        else:
+            big_list = big_list + thelist[:args.cut]
+
+    traj_dataset = D4RLTrajectoryDataset(big_list, context_len, rtg_scale, leg_trans_pro=True)
+    assert body_dim == traj_dataset.body_dim
+    
+    state_mean, state_std = traj_dataset.get_state_stats(body=False)
+    
+    return traj_dataset, state_mean, state_std#, body_mean, body_std
 
 def evaluate_on_env_ppo(model, device, context_len, env, rtg_target, rtg_scale,
                     num_eval_ep=10, max_test_ep_len=1000,
@@ -364,7 +407,7 @@ def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=1, d
     '''
     if bodydim == 0:
         return None, None
-    t = torch.randint(0, bodydim, (num_envs,))
+    t = torch.randint(0, bodydim, (num_envs,1))
     if -1 not in fixed_joint:
         t = torch.ones((num_envs, len(fixed_joint)), dtype=int) * torch.tensor(fixed_joint)
     bodys = torch.ones(num_envs, bodydim).to(device)
@@ -372,29 +415,40 @@ def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=1, d
         for joint in [t[i]]:
             bodys[i, joint] = random.random() if flawed_rate == -1 else flawed_rate
     return bodys, t
-
-def step_body(bodys, joint, rate = 0.004, threshold = 1, descend = 0.005): #each joint has a flaw rate to be partial of itself.
+       
+def step_body(bodys, joint, rate = 0.004, threshold = 0): #each joint has a flaw rate to be partial of itself.
     '''
-    joint: (num_envs, ,) OR a single int, 每个环境对应的1个坏损关节 
+    joint: (num_envs, num) OR a single int, 每个环境对应的1个坏损关节 
         #TODO: joint will become (num_envs, num), num means the number of flawed joints.
     rate: 每个step，有rate的概率使得关节扭矩往下掉，剩余扭矩比例随机
-    threshold， descend: 在剩余扭矩高于threshold时，每次减少 descend 
+    threshold， 在剩余扭矩高于threshold时，重置到随机的一个扭矩。
     '''        
     num_envs = bodys.shape[0]
     t = torch.rand(num_envs)
-    t = (t<rate) * random.random()
+    t = (t<rate) * torch.rand(num_envs)
     t = 1 - t
     t = t.to(bodys.device)
     if type(joint) == torch.Tensor:
-        joint = joint.squeeze()
-    bodys[:, joint] *= t
-    if type(joint)==int:
-        joint = torch.ones(num_envs) * joint
-    if threshold <1 and descend>0:
-        for idx, j in enumerate(joint): #This Part will slow down the speed a lot! Considering to remove it at some time. OR Re-Implement it in a fancy way
-            if bodys[idx, j] > threshold:
-                bodys[idx, j] -= descend
-    # print(bodys[:10,:])
+        joint = joint.to(bodys.device)
+        # print(bodys.shape, joint.shape, t.shape)
+        p = torch.gather(bodys, 1, joint) * t
+        bodys = torch.scatter(bodys, 1, joint, p)
+        if threshold >0: 
+            tmp = torch.gather(bodys, 1, joint)
+            t = (tmp < threshold) * torch.rand(num_envs, device = bodys.device)
+            t = t.to(bodys.device)
+            t = 1/(1 - t)
+            bodys = torch.scatter(bodys, 1, joint, t * tmp)
+            bodys = torch.min(bodys, torch.ones_like(bodys))
+    else:
+        bodys[:, joint] *= t
+        if threshold >0: # Here we assume that joint must be a single int
+            t = (bodys[:,joint] < threshold) * torch.rand(num_envs, device = bodys.device)
+            t = t.to(bodys.device)
+            t = 1/(1 - t)
+            bodys[:,joint] *= t
+            bodys = torch.min(bodys, torch.ones_like(bodys))
+
     return bodys
 
 def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg_scale,
@@ -425,25 +479,12 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
     else:
         state_std = state_std.to(device)
 
-    # if body_mean is not None:
-    #     if not torch.is_tensor(body_mean):
-    #         body_mean = torch.from_numpy(body_mean).to(device)
-    #     else:
-    #         body_mean = body_mean.to(device)
-
-    # if body_std is not None:
-    #     if not torch.is_tensor(body_std):
-    #         body_std = torch.from_numpy(body_std).to(device)
-    #     else:
-    #         body_std = body_std.to(device)
-
-    # same as timesteps used for training the transformer
-    # also, crashes if device is passed to arange()
     timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
     timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
 
     model.eval()
-
+    # logger = Logger(env.dt)
+    
     with torch.no_grad():
         actions = torch.zeros((eval_batch_size, max_test_ep_len, act_dim),
                                 dtype=torch.float32, device=device)
@@ -457,41 +498,6 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
         bodys = torch.transpose(bodys, 0, 1).to(device)
         running_state, _  = env.reset()
 
-            # case = -1
-        #     final_rew, final_len = [], []
-            
-        #     while case < 12:    #24
-        #         # init episode
-        #         running_state = env.reset()
-        #         # init bodies
-        #         flawed_rate = 0 if case < 12 else 0.25  #只测试坏损为0与0.25的情况
-        #         body_target = [1 for _ in range(12)]    #! 有了这一步以后其实不需要入参里的bodytarget了 后续如果要启用需要注意这里
-        #         if (case != -1):
-        #             body_target[case%12] = flawed_rate
-        #         if body_mean is not None:
-        #             # pdb.set_trace()
-        #             body_target = (torch.tensor(body_target, dtype=torch.float32, device=device) - body_mean) / body_std
-        #         else:
-        #             body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
-
-
-        #         bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32)
-
-        #         # running_reward = 0
-        #         running_reward = torch.zeros((eval_batch_size, ),
-        #                             dtype=torch.float32, device=device)
-        #         # running_rtg = rtg_target*np.ones((eval_batch_size,), dtype=np.float16) / rtg_scale
-
-        #         # gif_images = []
-        #         total_rewards = np.zeros(eval_batch_size)
-        #         total_length = np.zeros(eval_batch_size)
-        #         dones = np.zeros(eval_batch_size)
-                
-                    
-        #         #testing loop
-        #         for t in range(max_test_ep_len):
-        # running_reward = torch.zeros((eval_batch_size, ),
-                                # dtype=torch.float32, device=device)
         total_rewards = np.zeros(eval_batch_size)
         dones = np.zeros(eval_batch_size)
 
@@ -503,98 +509,132 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
             bodys[:,t,:] = running_body
 
             if t < context_len:
-                if not nobody:
-                    _, act_preds, _ = model.forward(timesteps[:,:context_len],
-                                                states[:,:context_len],
-                                                actions[:,:context_len],
-                                                body= bodys[:,:context_len])
-                else:
-                    _, act_preds, _ = model.forward(timesteps[:,:context_len],
-                                                states[:,:context_len],
-                                                actions[:,:context_len])
+                _, act_preds, _ = model.forward(timesteps[:,:context_len],
+                                            states[:,:context_len],
+                                            actions[:,:context_len],
+                                            body= bodys[:,:context_len])
+                
                 if prompt_policy is None:
                     act = act_preds[:, t].detach()
                 else:
                     # act = prompt_policy(torch.tensor(running_state).unsqueeze(0)).squeeze()
                     act = prompt_policy(running_state.to(device))
             else:
-                if not nobody:
-                    _, act_preds, _ = model.forward(timesteps[:, t-context_len+1:t+1],
-                                            states[:, t-context_len+1:t+1],
-                                            actions[:, t-context_len+1:t+1],
-                                            body=bodys[:, t-context_len+1:t+1])
-                else:
-                    _, act_preds, _ = model.forward(timesteps[:,t-context_len+1:t+1],
-                                            states[:,t-context_len+1:t+1],
-                                            actions[:,t-context_len+1:t+1])
+                _, act_preds, body_preds = model.forward(timesteps[:, t-context_len+1:t+1],
+                                        states[:, t-context_len+1:t+1],
+                                        actions[:, t-context_len+1:t+1],
+                                        body=bodys[:, t-context_len+1:t+1])
                 act = act_preds[:, -1].detach()
-
-            running_state, _, running_reward, done, _ = env.step(act.cpu(), running_body)
+            running_state, _, running_reward, done, infos = env.step(act.cpu(), running_body)
+            
+            # if log_reward and infos["episode"]:
+            #     num_episodes = torch.sum(env.reset_buf).item()
+            #     if num_episodes > 0:
+            #         logger.log_rewards(infos["episode"], num_episodes)
 
             actions[:,t] = act
             total_reward += np.sum(running_reward.detach().cpu().numpy())
             total_rewards += running_reward.detach().cpu().numpy() * (dones == 0)
             dones += done.detach().cpu().numpy()
 
-            running_body = step_body(running_body, joints, rate = 0.04, threshold=0.4, descend= 0.005)
-                    
-        #             # pdb.set_trace()
-        #             if t < context_len:
-        #                 if not nobody:
-        #                     _, act_preds, _ = model.forward(timesteps[:,:context_len],
-        #                                                 states[:,:context_len],
-        #                                                 actions[:,:context_len],
-        #                                                 body=bodies[:,:context_len])
-        #                 else:
-        #                     _, act_preds, _ = model.forward(timesteps[:,:context_len],
-        #                                                 states[:,:context_len],
-        #                                                 actions[:,:context_len])
-
-        #                 # act = act_preds[0, t].detach()
-        #                 if prompt_policy is None:
-        #                     act = act_preds[:, t].detach()
-        #                 else:
-        #                     # act = prompt_policy(torch.tensor(running_state).unsqueeze(0)).squeeze()
-        #                     act = prompt_policy(running_state.to(device))
-        #             else:
-        #                 if not nobody:
-        #                     _, act_preds, _ = model.forward(timesteps[:,t-context_len+1:t+1],
-        #                                             states[:,t-context_len+1:t+1],
-        #                                             actions[:,t-context_len+1:t+1],
-        #                                             body=bodies[:,t-context_len+1:t+1] if not nobody else None)
-        #                 else:
-        #                     _, act_preds, _ = model.forward(timesteps[:,t-context_len+1:t+1],
-        #                                             states[:,t-context_len+1:t+1],
-        #                                             actions[:,t-context_len+1:t+1])
-        #                 # act = act_preds[0, -1].detach()
-        #                 act = act_preds[:, -1].detach()
-
-
-        #             # running_state, running_reward, done, _ = env.step(act.cpu().numpy())
-        #             running_state, running_reward, done, _ = env.step(act.cpu(), [case], 0.03)
- 
-        #             actions[:, t] = act
-
-        #             # total_reward += running_reward
-        #             total_reward += np.sum(running_reward.detach().cpu().numpy())
-        #             total_rewards += running_reward.detach().cpu().numpy() * (dones == 0)
-        #             dones += done.detach().cpu().numpy()
-
-        #             if torch.all(done):
-        #                 break
-                    
-        #         case = case + 1
-        #         # if case == 2 or case == 5:      #跳过前腿腕关节坏损的情况
-        #         #     case = case + 1     
+            running_body = step_body(running_body, joints, rate = 0.04, threshold=0.4)   
 
     # results['eval/avg_reward'] = total_reward / num_eval_ep
     results['eval/avg_reward'] = np.sum(total_rewards) / num_eval_ep
     results['eval/avg_ep_len'] = total_timesteps    #! 这里timestep的记录方式有点问题，无法记录中途坠毁的情况，后续需要关注一下
-    
-    # pdb.set_trace()
 
-    # if render:
-    #     imageio.mimsave("play.gif", gif_images)
+    return results
+
+def evaluate_with_env_batch_body(model, device, context_len, env, body_target, rtg_scale,
+                    num_eval_ep=10, max_test_ep_len=1000,
+                    state_mean=None, state_std=None,
+                    body_mean=None, body_std=None, render=False, prompt_policy=None, nobody=False):
+
+    eval_batch_size = num_eval_ep  # required for forward pass
+
+    results = {}
+    total_reward = 0
+    total_timesteps = 0
+    state_dim = env.cfg.env.num_observations
+    act_dim = env.cfg.env.num_actions
+    # state_dim = env.observation_space.shape[0]
+    # act_dim = env.action_space.shape[0]
+    body_dim = len(body_target)
+
+    assert state_mean is not None
+    if not torch.is_tensor(state_mean):
+        state_mean = torch.from_numpy(state_mean).to(device)
+    else:
+        state_mean = state_mean.to(device)
+
+    assert state_std is not None
+    if not torch.is_tensor(state_std):
+        state_std = torch.from_numpy(state_std).to(device)
+    else:
+        state_std = state_std.to(device)
+
+    timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
+    timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
+
+    model.eval()
+    # logger = Logger(env.dt)
+    
+    with torch.no_grad():
+        actions = torch.zeros((eval_batch_size, max_test_ep_len, act_dim),
+                                dtype=torch.float32, device=device)
+        states = torch.zeros((eval_batch_size, max_test_ep_len, state_dim),
+                                dtype=torch.float32, device=device) # Here we assume that obs = state !!
+        running_body , joints = flaw_generation(eval_batch_size, bodydim = body_dim, fixed_joint=[-1], device=device)
+        running_body = running_body.to(device)
+        bodys = running_body.expand(max_test_ep_len, eval_batch_size, body_dim).type(torch.float32)
+        bodys = torch.transpose(bodys, 0, 1).to(device)
+        running_state, _  = env.reset()
+
+        total_rewards = np.zeros(eval_batch_size)
+        dones = np.zeros(eval_batch_size)
+
+        for t in range(max_test_ep_len):
+            total_timesteps += 1
+            states[:,t,:] = running_state
+            states[:,t,:] = (states[:,t,:] - state_mean) / state_std
+
+            # bodys[:,t,:] = running_body
+
+            if t < context_len:
+                _, act_preds, _ = model.forward(timesteps[:,:context_len],
+                                            states[:,:context_len],
+                                            actions[:,:context_len],
+                                            body= bodys[:,:context_len])
+                
+                if prompt_policy is None:
+                    act = act_preds[:, t].detach()
+                else:
+                    # act = prompt_policy(torch.tensor(running_state).unsqueeze(0)).squeeze()
+                    act = prompt_policy(running_state.to(device))
+            else:
+                _, act_preds, body_preds = model.forward(timesteps[:, t-context_len+1:t+1],
+                                        states[:, t-context_len+1:t+1],
+                                        actions[:, t-context_len+1:t+1],
+                                        body=bodys[:, t-context_len+1:t+1])
+                act = act_preds[:, -1].detach()
+                bodys[:, t] = body_preds[:, -1].detach()
+            running_state, _, running_reward, done, infos = env.step(act.cpu(), running_body)
+            
+            # if log_reward and infos["episode"]:
+            #     num_episodes = torch.sum(env.reset_buf).item()
+            #     if num_episodes > 0:
+            #         logger.log_rewards(infos["episode"], num_episodes)
+
+            actions[:,t] = act
+            total_reward += np.sum(running_reward.detach().cpu().numpy())
+            total_rewards += running_reward.detach().cpu().numpy() * (dones == 0)
+            dones += done.detach().cpu().numpy()
+
+            running_body = step_body(running_body, joints, rate = 0.04, threshold=0.4)   
+
+    # results['eval/avg_reward'] = total_reward / num_eval_ep
+    results['eval/avg_reward'] = np.sum(total_rewards) / num_eval_ep
+    results['eval/avg_ep_len'] = total_timesteps    #! 这里timestep的记录方式有点问题，无法记录中途坠毁的情况，后续需要关注一下
 
     return results
 
@@ -1018,6 +1058,10 @@ def get_dataset_config(dataset):
         eval_body_vec = [1 for _ in range(12)]
         eval_env = "none"
     
+    if dataset == "IPPOtest":
+        datafile = "Trajectory_IPPO"
+        i_magic_list = [f"PPO_I_{0}"]
+        eval_body_vec = [1 for _ in range(12)]
     if dataset == "IPPO":
         datafile = "Trajectory_IPPO"
         i_magic_list = [f"PPO_I_{x}" for x in range(12)]

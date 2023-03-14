@@ -230,11 +230,11 @@ class LeggedTransformer(nn.Module):
         action_embeddings = self.embed_action(actions) + time_embeddings
         returns_embeddings = self.embed_rtg(leg_length) + time_embeddings
 
-        # stack rtg, states and actions and reshape sequence as
+        # stack states, body and actions and reshape sequence as
         # (r_0, s_0, a_0, r_1, s_1, a_1, r_2, s_2, a_2 ...)
 
         h = torch.stack(
-            (returns_embeddings, state_embeddings, action_embeddings), dim=1
+            (state_embeddings, returns_embeddings, action_embeddings), dim=1
         ).permute(0, 2, 1, 3).reshape(B, 3 * T, self.h_dim)
 
 
@@ -244,22 +244,22 @@ class LeggedTransformer(nn.Module):
         h = self.transformer(h)
 
         # get h reshaped such that its size = (B x 3 x T x h_dim) and
-        # h[:, 0, t] is conditioned on the input sequence r_0, s_0, a_0 ... r_t
-        # h[:, 1, t] is conditioned on the input sequence r_0, s_0, a_0 ... r_t, s_t
-        # h[:, 2, t] is conditioned on the input sequence r_0, s_0, a_0 ... r_t, s_t, a_t
+        # h[:, 0, t] is conditioned on the input sequence b_0, s_0, a_0 ... s_t
+        # h[:, 1, t] is conditioned on the input sequence b_0, s_0, a_0 ... s_t, b_t, 
+        # h[:, 2, t] is conditioned on the input sequence b_0, s_0, a_0 ... s_t, b_t, a_t
         # that is, for each timestep (t) we have 3 output embeddings from the transformer,
         # each conditioned on all previous timesteps plus 
-        # the 3 input variables at that timestep (r_t, s_t, a_t) in sequence.
+        # the 3 input variables at that timestep (s_t, b_t, a_t) in sequence.
 
         h = h.reshape(B, T, 3, self.h_dim).permute(0, 2, 1, 3)
 
         # get predictions
 
-        return_preds = self.predict_rtg(h[:,2])     # predict next rtg given r, s, a
-        state_preds = self.predict_state(h[:,2])    # predict next state given r, s, a
+        body_preds = self.predict_rtg(h[:,0])     # predict next rtg given s, b, a
+        state_preds = self.predict_state(h[:,2])    # predict next state given s, b, a
         action_preds = self.predict_action(h[:,1])  # predict action given r, s
         
-        return state_preds, action_preds, return_preds
+        return state_preds, action_preds, body_preds
 
 class LeggedTransformerPro(nn.Module):
     def __init__(self, body_dim, state_dim, act_dim, n_blocks, h_dim, context_len,
@@ -290,8 +290,8 @@ class LeggedTransformerPro(nn.Module):
         # continuous actions
         self.embed_action = torch.nn.Linear(act_dim, h_dim)
         
-        #! 此处根据余琛学长意见去掉最后一层的action，原本这一层会让他的机器狗在实机上表现得更好
-        use_action_tanh = False # True for continuous actions
+        #! 此处根据余琛学长意见去掉最后一层的action，原本这一层会让他的机器狗在实机上表现得更好 又改成true试一下
+        use_action_tanh = True # True for continuous actions
 
         ### prediction heads
         self.predict_body = torch.nn.Linear(h_dim, body_dim)
@@ -351,6 +351,96 @@ class LeggedTransformerPro(nn.Module):
         
         return state_preds, action_preds, return_preds
 
+class LeggedTransformerBody(nn.Module):
+    def __init__(self, body_dim, state_dim, act_dim, n_blocks, h_dim, context_len,
+                 n_heads, drop_p, max_timestep=4096, state_mean=None, state_std=None, body_mean=None, body_std=None):
+        super().__init__()
+
+        self.body_dim = body_dim
+        self.state_dim = state_dim
+        self.act_dim = act_dim
+        self.h_dim = h_dim
+        self.max_timestep = max_timestep
+
+        ### transformer blocks
+        input_seq_len = 3 * context_len
+        blocks = [Block(h_dim, input_seq_len, n_heads, drop_p) for _ in range(n_blocks)]
+        self.transformer = nn.Sequential(*blocks)
+
+        ### projection heads (project to embedding)
+        self.embed_ln = nn.LayerNorm(h_dim)
+        self.embed_timestep = nn.Embedding(max_timestep, h_dim)
+        self.embed_body = torch.nn.Linear(body_dim, h_dim)
+        self.embed_state = torch.nn.Linear(state_dim, h_dim)
+
+        # # discrete actions
+        # self.embed_action = torch.nn.Embedding(act_dim, h_dim)
+        # use_action_tanh = False # False for discrete actions
+
+        # continuous actions
+        self.embed_action = torch.nn.Linear(act_dim, h_dim)
+        
+        #! 此处根据余琛学长意见去掉最后一层的action，原本这一层会让他的机器狗在实机上表现得更好 又改成true试一下
+        use_action_tanh = False # True for continuous actions
+
+        ### prediction heads
+        self.predict_body = torch.nn.Linear(h_dim, body_dim)
+        self.predict_state = torch.nn.Linear(h_dim, state_dim)
+        self.predict_action = nn.Sequential(
+            *([nn.Linear(h_dim, act_dim)] + ([nn.Tanh()] if use_action_tanh else []))
+        )
+
+        self.state_mean = torch.tensor(state_mean)
+        self.state_std = torch.tensor(state_std)
+        
+        if body_mean is not None:
+            self.body_mean = torch.tensor(body_mean)
+            self.body_std = torch.tensor(body_std)
+
+
+    def forward(self, timesteps, states, actions, body):
+        
+        B, T, _ = states.shape
+
+        time_embeddings = self.embed_timestep(timesteps)
+
+        # time embeddings are treated similar to positional embeddings
+        state_embeddings = self.embed_state(states) + time_embeddings
+        action_embeddings = self.embed_action(actions) + time_embeddings
+        # pdb.set_trace()
+        body_embeddings = self.embed_body(body) + time_embeddings
+
+        # stack rtg, states and actions and reshape sequence as
+        # (r_0, s_0, a_0, r_1, s_1, a_1, r_2, s_2, a_2 ...)
+
+        h = torch.stack(
+            (body_embeddings, state_embeddings, action_embeddings), dim=1
+        ).permute(0, 2, 1, 3).reshape(B, 3 * T, self.h_dim)
+
+
+        h = self.embed_ln(h)
+
+        # transformer and prediction
+        h = self.transformer(h)
+
+        # get h reshaped such that its size = (B x 3 x T x h_dim) and
+        # h[:, 0, t] is conditioned on the input sequence r_0, s_0, a_0 ... r_t
+        # h[:, 1, t] is conditioned on the input sequence r_0, s_0, a_0 ... r_t, s_t
+        # h[:, 2, t] is conditioned on the input sequence r_0, s_0, a_0 ... r_t, s_t, a_t
+        # that is, for each timestep (t) we have 3 output embeddings from the transformer,
+        # each conditioned on all previous timesteps plus 
+        # the 3 input variables at that timestep (r_t, s_t, a_t) in sequence.
+
+        h = h.reshape(B, T, 3, self.h_dim).permute(0, 2, 1, 3)
+
+        # get predictions
+
+        return_preds = self.predict_body(h[:,0])     # predict next rtg given r, s, a
+        state_preds = self.predict_state(h[:,2])    # predict next state given r, s, a
+        action_preds = self.predict_action(h[:,1])  # predict action given r, s
+        
+        return state_preds, action_preds, return_preds
+    
 class MLPBCModel(nn.Module):
     
     """
