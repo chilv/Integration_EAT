@@ -60,7 +60,7 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     dropout_p = 0.1          # dropout probability
 
     print("loading pre_record stds,means...")
-    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO_12/")
+    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO_02/")
     # model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
     state_mean, state_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
     # state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
@@ -96,8 +96,8 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
             context_len=context_len,
             n_heads=n_heads,
             drop_p=dropout_p,
-            state_mean=state_mean,
-            state_std=state_std,
+            # state_mean=state_mean,
+            # state_std=state_std,
             # body_mean=body_mean,
             # body_std=body_std
             ).to(device)
@@ -282,7 +282,7 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
     #====================================================================================
     # prepare algs
     device = torch.device(args.sim_device)
-    model = LeggedTransformerPro(
+    model = LeggedTransformerBody(
             body_dim=body_dim,
             state_dim=state_dim,
             act_dim=act_dim,
@@ -290,11 +290,7 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
             h_dim=embed_dim,
             context_len=context_len,
             n_heads=n_heads,
-            drop_p=dropout_p,
-            state_mean=state_mean,
-            state_std=state_std,
-            # body_mean=body_mean,
-            # body_std=body_std
+            drop_p=dropout_p
             ).to(device)
     model.load_state_dict(torch.load(
         os.path.join(model_path,"model_best.pt"), map_location = "cuda:0"
@@ -398,13 +394,17 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
                     act = act_preds[:, t].detach()
                     # body = body_preds[:, t].detach()
                 else:
-                    _, act_preds, body_preds = model.forward(timesteps[:,t-context_len+1:t+1],
+                    _, _, body_preds = model.forward(timesteps[:,t-context_len+1:t+1],
+                                            states[:,t-context_len+1:t+1],
+                                            actions[:,t-context_len+1:t+1],
+                                            body=bodies[:,t-context_len+1:t+1])
+                    bodies[:, t] = body_preds[:, -1].detach()   #加这一句可以让学出来的body返回回去
+                    _, act_preds, _ = model.forward(timesteps[:,t-context_len+1:t+1],
                                             states[:,t-context_len+1:t+1],
                                             actions[:,t-context_len+1:t+1],
                                             body=bodies[:,t-context_len+1:t+1])
                                             # body=bodies[:,t-context_len+1:t+1] if not nobody else None)
                     act = act_preds[:, -1].detach()
-                    bodies[:, t] = body_preds[:, -1].detach()   #加这一句可以让学出来的body返回回去
 
                 #let one joint or leg be disabled
                 # act = disable_leg(act.detach(), target="none", index=3)
@@ -483,4 +483,5 @@ if __name__ == "__main__":
     
     RECORD_FRAMES = False
     MOVE_CAMERA = False
-    play_withbody(args, 2, 0)
+    # play(args, 1, 0)
+    play_withbody(args, 8, 0)

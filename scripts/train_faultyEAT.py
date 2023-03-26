@@ -21,7 +21,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from utils import D4RLTrajectoryDataset, evaluate_on_env,  evaluate_on_env_batch_body, get_dataset_config, partial_traj #, get_d4rl_normalized_score,
-from model import DecisionTransformer, LeggedTransformer, LeggedTransformerPro, MLPBCModel
+from model import LeggedTransformerPro, DecisionTransformer
 import wandb
 # from singlea1 import A1
 # from a1wrapper import A1
@@ -139,10 +139,6 @@ def train(args):
     config["log csv save path"] = log_csv_path
     # pdb.set_trace()
     wandb.init(config=config, project="my_EAT_test", name=model_file_name, mode="online" if not args.wandboff else "disabled", notes=args.note)
-    
-    # turns = math.ceil(len(dataset_path_list)/20.0)  #轨迹太多的时候拆分成为之多20段一组的情况
-    # print(f"the training process will be sliced to {turns} parts ... ")
-    # for slices in range(turns):
     #---------------------------------------------------------------------------------------------------------------
     print("Loding paths for each robot model...")
     #加载轨迹部分

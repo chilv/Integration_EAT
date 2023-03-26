@@ -451,6 +451,79 @@ def step_body(bodys, joint, rate = 0.004, threshold = 0): #each joint has a flaw
 
     return bodys
 
+def evaluate_on_env_batch_distill(model, device, context_len, env,
+                    num_eval_ep=10, max_test_ep_len=1000,
+                    state_mean=None, state_std=None):
+    """本函数用来测试强行蒸馏十二种步态的transformer表现如何
+    """
+    eval_batch_size = num_eval_ep  # required for forward pass
+
+    results = {}
+    total_reward = 0
+    total_timesteps = 0
+    state_dim = env.cfg.env.num_observations
+    act_dim = env.cfg.env.num_actions
+
+    assert state_mean is not None
+    if not torch.is_tensor(state_mean):
+        state_mean = torch.from_numpy(state_mean).to(device)
+    else:
+        state_mean = state_mean.to(device)
+
+    assert state_std is not None
+    if not torch.is_tensor(state_std):
+        state_std = torch.from_numpy(state_std).to(device)
+    else:
+        state_std = state_std.to(device)
+
+    timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
+    timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
+
+    model.eval()
+    # logger = Logger(env.dt)
+    
+    with torch.no_grad():
+        actions = torch.zeros((eval_batch_size, max_test_ep_len, act_dim),
+                                dtype=torch.float32, device=device)
+        states = torch.zeros((eval_batch_size, max_test_ep_len, state_dim),
+                                dtype=torch.float32, device=device) # Here we assume that obs = state !!
+        running_body , joints = flaw_generation(eval_batch_size, fixed_joint=[-1], device=device)
+        running_body = running_body.to(device)
+        running_state, _  = env.reset()
+
+        total_rewards = np.zeros(eval_batch_size)
+        total_steps = np.zeros(eval_batch_size)
+        dones = np.zeros(eval_batch_size)
+
+        for t in range(max_test_ep_len):
+            states[:,t,:] = running_state
+            states[:,t,:] = (states[:,t,:] - state_mean) / state_std
+
+            if t < context_len:
+                _, act_preds = model.forward(timesteps[:,:context_len],
+                                            states[:,:context_len],
+                                            actions[:,:context_len])
+                
+                act = act_preds[:, t].detach()
+            else:
+                _, act_preds = model.forward(timesteps[:, t-context_len+1:t+1],
+                                        states[:, t-context_len+1:t+1],
+                                        actions[:, t-context_len+1:t+1])
+                act = act_preds[:, -1].detach()
+            running_state, _, running_reward, done, infos = env.step(act.cpu(), running_body)
+
+            actions[:,t] = act
+            total_reward += np.sum(running_reward.detach().cpu().numpy())
+            total_rewards += running_reward.detach().cpu().numpy() * (dones == 0)
+            total_steps += (dones==0)
+            dones += done.detach().cpu().numpy()
+
+            running_body = step_body(running_body, joints, rate = 0.01)   
+
+    results['eval/avg_reward'] = np.mean(total_rewards)
+    results['eval/avg_ep_len'] = np.mean(total_steps)    
+    return results
+
 def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg_scale,
                     num_eval_ep=10, max_test_ep_len=1000,
                     state_mean=None, state_std=None,
@@ -535,13 +608,13 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
             actions[:,t] = act
             total_reward += np.sum(running_reward.detach().cpu().numpy())
             total_rewards += running_reward.detach().cpu().numpy() * (dones == 0)
-            dones += done.detach().cpu().numpy()
+            dones += ~done.detach().cpu().numpy()
 
             running_body = step_body(running_body, joints, rate = 0.04, threshold=0.4)   
 
     # results['eval/avg_reward'] = total_reward / num_eval_ep
     results['eval/avg_reward'] = np.sum(total_rewards) / num_eval_ep
-    results['eval/avg_ep_len'] = total_timesteps    #! 这里timestep的记录方式有点问题，无法记录中途坠毁的情况，后续需要关注一下
+    results['eval/avg_ep_len'] = np.mean(dones)
 
     return results
 
@@ -586,21 +659,25 @@ def evaluate_with_env_batch_body(model, device, context_len, env, body_target, r
                                 dtype=torch.float32, device=device) # Here we assume that obs = state !!
         running_body , joints = flaw_generation(eval_batch_size, bodydim = body_dim, fixed_joint=[-1], device=device)
         running_body = running_body.to(device)
-        bodys = running_body.expand(max_test_ep_len, eval_batch_size, body_dim).type(torch.float32)
-        bodys = torch.transpose(bodys, 0, 1).to(device)
+        # bodys = running_body.expand(max_test_ep_len, eval_batch_size, body_dim).type(torch.float32)
+        bodys = torch.ones((eval_batch_size, max_test_ep_len, body_dim),
+                                dtype=torch.float32, device=device)
+        # bodys = torch.transpose(bodys, 0, 1).to(device)
         running_state, _  = env.reset()
 
         total_rewards = np.zeros(eval_batch_size)
         dones = np.zeros(eval_batch_size)
 
         for t in range(max_test_ep_len):
-            total_timesteps += 1
+            # total_timesteps += 1
             states[:,t,:] = running_state
             states[:,t,:] = (states[:,t,:] - state_mean) / state_std
 
             # bodys[:,t,:] = running_body
 
             if t < context_len:
+                bodys[:,t,:] = running_body
+
                 _, act_preds, _ = model.forward(timesteps[:,:context_len],
                                             states[:,:context_len],
                                             actions[:,:context_len],
@@ -616,8 +693,13 @@ def evaluate_with_env_batch_body(model, device, context_len, env, body_target, r
                                         states[:, t-context_len+1:t+1],
                                         actions[:, t-context_len+1:t+1],
                                         body=bodys[:, t-context_len+1:t+1])
-                act = act_preds[:, -1].detach()
                 bodys[:, t] = body_preds[:, -1].detach()
+
+                _, act_preds, body_preds = model.forward(timesteps[:, t-context_len+1:t+1],
+                                        states[:, t-context_len+1:t+1],
+                                        actions[:, t-context_len+1:t+1],
+                                        body=bodys[:, t-context_len+1:t+1])
+                act = act_preds[:, -1].detach()
             running_state, _, running_reward, done, infos = env.step(act.cpu(), running_body)
             
             # if log_reward and infos["episode"]:
@@ -630,11 +712,11 @@ def evaluate_with_env_batch_body(model, device, context_len, env, body_target, r
             total_rewards += running_reward.detach().cpu().numpy() * (dones == 0)
             dones += done.detach().cpu().numpy()
 
-            running_body = step_body(running_body, joints, rate = 0.04, threshold=0.4)   
+            running_body = step_body(running_body, joints)   
 
     # results['eval/avg_reward'] = total_reward / num_eval_ep
-    results['eval/avg_reward'] = np.sum(total_rewards) / num_eval_ep
-    results['eval/avg_ep_len'] = total_timesteps    #! 这里timestep的记录方式有点问题，无法记录中途坠毁的情况，后续需要关注一下
+    results['eval/avg_reward'] = np.mean(total_rewards)
+    results['eval/avg_ep_len'] = np.mean(dones)
 
     return results
 
