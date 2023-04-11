@@ -13,5 +13,7 @@
 *.pyc
 *.DS_Store
 
-/EAT_runs/
-/Models
+#wandb生成的
+/wandb/
+#上阵及测试用的配置
+/real_robot_eat/
