@@ -398,7 +398,7 @@ def evaluate_on_env_batch(model, device, context_len, env, rtg_target, rtg_scale
 
     return results
 
-def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=1, device = "cpu"):
+def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=-1, device = "cpu", upper_bound = 1):
     '''
         num_envs: 环境数
         fixed_joint: 指定损坏的关节为fixed_joint(LIST) [0,11]，若不固定为-1
@@ -413,7 +413,7 @@ def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=1, d
     bodys = torch.ones(num_envs, bodydim).to(device)
     for i in range(num_envs):
         for joint in [t[i]]:
-            bodys[i, joint] = random.random() if flawed_rate == -1 else flawed_rate
+            bodys[i, joint] = random.random() * upper_bound if flawed_rate == -1 else flawed_rate
     return bodys, t
        
 def step_body(bodys, joint, rate = 0.004, threshold = 0): #each joint has a flaw rate to be partial of itself.
@@ -657,7 +657,7 @@ def evaluate_with_env_batch_body(model, device, context_len, env, body_target, r
                                 dtype=torch.float32, device=device)
         states = torch.zeros((eval_batch_size, max_test_ep_len, state_dim),
                                 dtype=torch.float32, device=device) # Here we assume that obs = state !!
-        running_body , joints = flaw_generation(eval_batch_size, bodydim = body_dim, fixed_joint=[-1], device=device)
+        running_body , joints = flaw_generation(eval_batch_size, bodydim = body_dim, fixed_joint=[-1],  device=device, upper_bound = 0.3)
         running_body = running_body.to(device)
         # bodys = running_body.expand(max_test_ep_len, eval_batch_size, body_dim).type(torch.float32)
         bodys = torch.ones((eval_batch_size, max_test_ep_len, body_dim),
@@ -1150,6 +1150,18 @@ def get_dataset_config(dataset):
         eval_body_vec = [1 for _ in range(12)]
     if dataset == "IPPO2":
         datafile = "Trajectory_IPPO_2"
+        i_magic_list = [f"PPO_I_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "IPPO3":
+        datafile = "Trajectory_IPPO_3"
+        i_magic_list = [f"PPO_I_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "IPPO6":
+        datafile = "Trajectory_IPPO_6"
+        i_magic_list = [f"PPO_I_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "IPPO8":
+        datafile = "Trajectory_IPPO_8"
         i_magic_list = [f"PPO_I_{x}" for x in range(12)]
         eval_body_vec = [1 for _ in range(12)]
     if dataset == "faulty":

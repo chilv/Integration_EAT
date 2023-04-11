@@ -22,6 +22,9 @@ from model import DecisionTransformer, LeggedTransformer, LeggedTransformerPro, 
 from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger
 from singlea1 import A1
 import statistics
+import pdb
+from collections import Counter
+
 
 from tqdm import trange, tqdm
 
@@ -60,7 +63,7 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     dropout_p = 0.1          # dropout probability
 
     print("loading pre_record stds,means...")
-    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO_02/")
+    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO_09/")
     # model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
     state_mean, state_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
     # state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
@@ -255,7 +258,7 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
     dropout_p = 0.1          # dropout probability
 
     print("loading pre_record stds,means...")
-    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO3_07/")
+    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO8_00/")
     # model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
     state_mean, state_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
     # state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
@@ -293,7 +296,7 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
             drop_p=dropout_p
             ).to(device)
     model.load_state_dict(torch.load(
-        os.path.join(model_path,"model_best.pt"), map_location = "cuda:0"
+        os.path.join(model_path,"model4000epoch.pt"), map_location = "cuda:0"
     ))
     model.eval()
     #====================================================================================
@@ -399,6 +402,9 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
                                             actions[:,t-context_len+1:t+1],
                                             body=bodies[:,t-context_len+1:t+1])
                     bodies[:, t] = body_preds[:, -1].detach()   #加这一句可以让学出来的body返回回去
+                    if t % 900 == 0 and t > 0:
+                        pdb.set_trace()
+                    # print(torch.argmin(bodies[:,t,:], dim=-1))
                     _, act_preds, _ = model.forward(timesteps[:,t-context_len+1:t+1],
                                             states[:,t-context_len+1:t+1],
                                             actions[:,t-context_len+1:t+1],
@@ -483,5 +489,5 @@ if __name__ == "__main__":
     
     RECORD_FRAMES = False
     MOVE_CAMERA = False
-    # play(args, 1, 0)
-    play_withbody(args, 8, 0)
+    play(args, 5, 0)
+    # play_withbody(args, 3, 0)

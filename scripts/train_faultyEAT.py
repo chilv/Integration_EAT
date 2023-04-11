@@ -426,5 +426,5 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     args, unknown = parser.parse_known_args()
 
-    args.wandboff = True    #当无法连接wandb时使用
+    # args.wandboff = True    #当无法连接wandb时使用
     train(args)
