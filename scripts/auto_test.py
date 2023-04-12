@@ -46,7 +46,7 @@ def test_ppo(args, env, train_cfg, faulty_tag = -1, flawed_rate = 1):
     #     train_cfg.runner.load_run = f""
     # else:
     #     train_cfg.runner.load_run = f"{faulty_tag}"
-    train_cfg.runner.load_run = "Mar01_09-44-06_"
+    train_cfg.runner.load_run = "Mar22_12-58-40_"
     train_cfg.runner.checkpoint = 1111
     log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
     #判断模型文件是否存在 若不存在则报错弹出
@@ -148,29 +148,32 @@ def test_EAT(args, env, EAT_model, pass_args, faulty_tag = -1, flawed_rate = 1):
                     #                             body=bodies[:,:context_len])
                     # body_cls, body_reg = body_preds
                     # tmp = body_cls[:,t].argmax(dim=1).to(device) # (env,)
-                    # # print(torch.scatter(torch.ones(eval_batch_size,body_dim).to(device), 1, tmp.unsqueeze(-1), body_reg[:,t]).shape)
+                    # print(torch.scatter(torch.ones(eval_batch_size,body_dim).to(device), 1, tmp.unsqueeze(-1), body_reg[:,t]).shape)
                     # bodies[:,t] = torch.scatter(torch.ones(eval_batch_size,body_dim).to(device), 1, tmp.unsqueeze(-1), body_reg[:,t])
                     # if t%100==0: 
+                    #     # print(body_cls[:5,t])
                     #     print(tmp)
                     #     print(bodies[:,t,faulty_tag])
 
-                # bodies[:,t] = body_preds[:,t].detach()
                 _, act_preds, _ = EAT_model.forward(timesteps[:,:context_len],
                                             states[:,:context_len],
                                             actions[:,:context_len],
                                             body=bodies[:,:context_len])
                 act = act_preds[:, t].detach()
             else:
-                # _, _, body_preds = EAT_model.forward(timesteps[:, t-context_len+1:t+1],
-                #                             states[:, t-context_len+1:t+1],
-                #                             actions[:, t-context_len+1:t+1],
-                #                             body=bodies[:, t-context_len+1:t+1])
-                # body_cls, body_reg = body_preds
+                _, _, body_preds = EAT_model.forward(timesteps[:, t-context_len+1:t+1],
+                                            states[:, t-context_len+1:t+1],
+                                            actions[:, t-context_len+1:t+1],
+                                            body=bodies[:, t-context_len+1:t+1])
+                body_cls, body_reg = body_preds
                 # tmp = body_cls[:,-1].argmax(dim=1).to(device) # (env,)
-                # bodies[:,t] = torch.scatter(torch.ones(eval_batch_size,body_dim).to(device), 1, tmp.unsqueeze(-1), body_reg[:,-1])
-                # if t%100==0:
-                    # print(tmp)
-                    # print(bodies[:,t,faulty_tag])
+                # bodies[:,t] = torch.scatter(torch.ones(eval_batch_size,body_dim).to(device), 1, tmp.unsqueeze(-1), torch.ones_like(body_reg[:,-1])*flawed_rate)
+                # if t%context_len==0:
+                #     # print(body_cls[:5,-1])
+                #     print(tmp)
+                #     print(bodies[:,t,faulty_tag])
+                #     input()
+                bodies[:,t] = body_reg[:,-1].detach()
                 # _, _, body_preds = EAT_model.forward(timesteps[:,t-context_len+1:t+1],
                 #                         states[:,t-context_len+1:t+1],
                 #                         actions[:,t-context_len+1:t+1],
@@ -225,8 +228,9 @@ if __name__ == '__main__':
     # ppo_row_names = np.arange(0,1,0.1)
     # out_table = np.zeros((12,10))
     # t = 0
+    # joint = args.joint[0]
     # for j in ppo_row_names:
-    #     out_table[args.joint, t] , _= test_ppo(args, env, train_cfg, args.joint, j)
+    #     out_table[joint, t] , _= test_ppo(args, env, train_cfg, joint, j)
     #     t += 1
 
     # # for i in range(12):#12条断腿情况
@@ -240,7 +244,7 @@ if __name__ == '__main__':
     # ppo_df.index = codename_list
     # # ppo_df.columns = [0,0.25,0.5, 0.75, 1.0]
     # ppo_df.columns = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-    # ppo_res = ppo_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/IPPO11.csv"), mode='w')
+    # ppo_res = ppo_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/IPPO2_0.csv"), mode='w')
     # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/IPPO.csv"), out_table, delimiter=',')
     #测试ppo结束===================================================================
     
@@ -248,9 +252,9 @@ if __name__ == '__main__':
     #测试EAT======================================================================
     #loading EAT model
     # loading pre_record stds,means...
-    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO4_32/")
+    model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO7_01/")
     
-    state_mean, state_std= np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
+    state_mean, state_std= np.load(os.path.join(model_path,"model.state_mean.npy")), np.load(os.path.join(model_path,"model.state_std.npy"))
     if not args.not_use_body_norm:
         body_mean, body_std = np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
     else:
@@ -264,7 +268,7 @@ if __name__ == '__main__':
     act_dim = 12
     body_dim = 12	
 
-    context_len = 20      # K in decision transformer
+    context_len = 50      # K in decision transformer
     n_blocks = 6            # num of transformer blocks
     embed_dim = 128          # embedding (hidden) dim of transformer 
     n_heads = 1              # num of transformer heads
@@ -291,17 +295,18 @@ if __name__ == '__main__':
     EAT_model.eval()
     
     #testing
-    EAT_rows = np.arange(0.0, 0.5, 0.1)
+    EAT_rows = np.arange(0.1, 1, 0.1)
     EAT_table = np.zeros((12,11))
+    # print(test_EAT(args,env,EAT_model, pass_args, 2, 0.1))
     for i in range(12):#12条断腿情况
         # for j in range (0, 0.8, 0.1):
         for j in EAT_rows:            
             EAT_table[i, np.where(EAT_rows==j)], _ = test_EAT(args, env, EAT_model, pass_args, i, j)
-    # EAT_table[:,-1],_ = test_EAT(args, env, EAT_model, pass_args, -1, 1) #测完好情况
+    EAT_table[:,-1],_ = test_EAT(args, env, EAT_model, pass_args, -1, 1) #测完好情况
     EAT_df = pd.DataFrame(EAT_table)
     EAT_df.index = codename_list
-    EAT_df.columns = np.arange(0.0, 0.5, 0.1)
-    EAT_res = EAT_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/EAT_IPPO_Body_Pred_IPPO4_CLS_REG_GIVEN_BODY.csv"), mode='w')
+    EAT_df.columns = np.arange(0.1, 1, 0.1)
+    EAT_res = EAT_df.to_csv(os.path.join(LEGGED_GYM_ROOT_DIR,"excel/EAT_IPPO7_Body_Pred.csv"), mode='w')
     # # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT2.csv"), EAT_table, delimiter=',')
     #测试EAT结束===================================================================
     

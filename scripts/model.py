@@ -294,16 +294,18 @@ class LeggedTransformerPro(nn.Module):
         use_action_tanh = tanh # True for continuous actions
 
         ### prediction heads
-        if use_action_tanh:
-            self.predict_body_cls = nn.Sequential(
-                *([nn.Linear(h_dim, body_dim)] + ([nn.Tanh()] if use_action_tanh else []))
-            )
-            self.predict_body_reg = nn.Sequential(
-                *([nn.Linear(h_dim, body_dim)] + ([nn.Tanh()] if use_action_tanh else []))
-            )
-        else:
-            self.predict_body_cls = nn.Linear(h_dim, body_dim)
-            self.predict_body_reg = nn.Linear(h_dim, body_dim)
+        # if use_action_tanh:
+        #     self.predict_body_cls = nn.Sequential(
+        #         *([nn.Linear(h_dim, body_dim)] + ([nn.Tanh()] if use_action_tanh else []))
+        #     )
+        #     self.predict_body_reg = nn.Sequential(
+        #         *([nn.Linear(h_dim, body_dim)] + ([nn.Tanh()] if use_action_tanh else []))
+        #     )
+        # else:
+        
+        self.predict_body_cls = nn.Linear(h_dim, body_dim)
+        self.predict_body_reg = nn.Linear(h_dim, body_dim)
+
         self.predict_state = torch.nn.Linear(h_dim, state_dim)
         self.predict_action = nn.Sequential(
             *([nn.Linear(h_dim, act_dim)] + ([nn.Tanh()] if use_action_tanh else []))
@@ -427,3 +429,20 @@ class MLPBCModel(nn.Module):
         states = states.to(dtype=torch.float32)
         _, actions, _ = self.forward(states)
         return actions[:,-1]
+
+class Prompt_DT(nn.Module):
+
+    '''
+    Train a EAT to get a "Prompt", use distillation with the Prompt to Train a DT for controling the Robot.
+    '''
+
+    def __init__(self, body_dim, state_dim, act_dim, n_blocks, h_dim, context_len,
+                 n_heads, drop_p, max_timestep=4096, state_mean=None, state_std=None, body_mean=None, body_std=None, tanh = False, use_rtg = False):
+        EAT = LeggedTransformerPro(body_dim, state_dim, act_dim, n_blocks, h_dim, context_len,
+                 n_heads, drop_p, max_timestep, state_mean, state_std, body_mean, body_std, tanh)
+        DT = DecisionTransformer(state_dim, act_dim, n_blocks, h_dim, context_len,
+                 n_heads, drop_p, max_timestep, state_mean, state_std, use_rtg)
+    
+        self.Prompt = None
+    def forward(self, ):
+        pass

@@ -114,6 +114,7 @@ def train(args):
     for datafile in datafile_list:
         file_list.extend([os.path.join(datafile, f"{i_magic}.pkl") for i_magic in i_magic_list])
     dataset_path_list_raw = [os.path.join(args.dataset_dir, d) for d in file_list]
+    # print(dataset_path_list_raw)
     dataset_path_list = []
     for p in dataset_path_list_raw:
         if os.path.isfile(p):
@@ -266,7 +267,7 @@ def train(args):
                     drop_p=dropout_p,
                     state_mean=state_mean,
                     state_std=state_std,
-                    tanh = True
+                    tanh = False
                     # body_mean=body_mean,
                     # body_std=body_std
                 ).to(device)
@@ -357,13 +358,14 @@ def train(args):
             # print("gt_reg shape:", gt_reg)
             # print(pred_reg.view(-1,body_dim)[traj_mask.view(-1,)>0].shape, tmp.unsqueeze(-1).shape)
             # print("pred_shape:",torch.gather(pred_reg.view(-1,body_dim)[traj_mask.view(-1,)>0], 1, tmp.unsqueeze(-1)))
-            body_loss = 100 * F.cross_entropy(pred_cls.view(-1, body_dim)[traj_mask.view(-1,)>0], gt_cls.float()) + \
-                    F.mse_loss(gt_reg, torch.gather(pred_reg.view(-1,body_dim)[traj_mask.view(-1,)>0], 1, tmp.unsqueeze(-1)).squeeze(-1), reduction="mean")
-
+            # body_loss = 20 * F.cross_entropy(pred_cls.view(-1, body_dim)[traj_mask.view(-1,)>0], gt_cls.float()) + \
+            #         9 *F.mse_loss(gt_reg, torch.gather(pred_reg.view(-1,body_dim)[traj_mask.view(-1,)>0], 1, tmp.unsqueeze(-1)).squeeze(-1), reduction="mean") \
+            #         + F.mse_loss(body_target, gt_reg.view(-1, body_dim)[traj_mask.view(-1,)>0], reduction='mean' )
+            body_loss = 10 * F.mse_loss(body_target, pred_reg.view(-1, body_dim)[traj_mask.view(-1,)>0], reduction='mean' ) + F.cross_entropy(pred_cls.view(-1, body_dim)[traj_mask.view(-1,)>0], gt_cls.float())
             action_preds = action_preds.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             action_target = action_target.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             
-            action_loss = F.mse_loss(action_preds, action_target, reduction='mean')
+            action_loss = 10 * F.mse_loss(action_preds, action_target, reduction='mean')
             # print(body_target.shape, body_preds.shape)
             # body_loss = 10 * F.mse_loss(body_preds, body_target, reduction='mean')
 
@@ -399,7 +401,7 @@ def train(args):
             # evaluate action accuracy
 
             results = evaluate_on_env_batch_body(model, device, context_len, env, eval_body_vec, 1,
-                                                num_eval_ep, max_eval_ep_len, state_mean, state_std, nobody=args.nobody)
+                                                num_eval_ep, max_eval_ep_len, state_mean, state_std, nobody=args.nobody, upper_bound=1)
 
         
             eval_avg_reward = results['eval/avg_reward']
@@ -479,17 +481,17 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dataset', type=str, default='IPPO')
+    parser.add_argument('--dataset', type=str, default='IPPO7')
 
     parser.add_argument('--max_eval_ep_len', type=int, default=1000)
-    parser.add_argument('--num_eval_ep', type=int, default=10)
+    parser.add_argument('--num_eval_ep', type=int, default=100)
     parser.add_argument('--noise', type=int, help="noisy environemnt for evaluation", default=0)
 
     parser.add_argument('--dataset_dir', type=str, default='Integration_EAT/data/')
     parser.add_argument('--log_dir', type=str, default='Integration_EAT/EAT_runs/')
     parser.add_argument('--cut', type=int, default=0)
 
-    parser.add_argument('--context_len', type=int, default=20)  #50 试一下
+    parser.add_argument('--context_len', type=int, default=50)  #50 试一下
     parser.add_argument('--n_blocks', type=int, default=6)
     parser.add_argument('--embed_dim', type=int, default=128)   #! 试图修改transformer规模
     parser.add_argument('--n_heads', type=int, default=1)
@@ -506,7 +508,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--wandboff', default=False, action='store_true', help="Disable wandb")
 
-    parser.add_argument('--device', type=str, default='cuda:7')
+    parser.add_argument('--device', type=str, default='cuda:2')
     parser.add_argument('--note', type=str, default='')
     parser.add_argument('--seed', type=int, default=676)
 

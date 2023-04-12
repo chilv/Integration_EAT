@@ -355,7 +355,7 @@ def evaluate_on_env_batch(model, device, context_len, env, rtg_target, rtg_scale
 
     return results
 
-def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=1, device = "cpu"):
+def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=-1, device = "cpu", upper_bound = 1):
     '''
         num_envs: 环境数
         fixed_joint: 指定损坏的关节为fixed_joint(LIST) [0,11]，若不固定为-1
@@ -372,10 +372,10 @@ def flaw_generation(num_envs, bodydim = 12, fixed_joint = [-1], flawed_rate=1, d
     bodys = torch.ones(num_envs, bodydim).to(device)
     for i in range(num_envs):
         for joint in t[i]:
-            bodys[i, joint] = random.random() if flawed_rate == -1 else flawed_rate
+            bodys[i, joint] = random.random()*upper_bound if flawed_rate == -1 else flawed_rate
     return bodys, t
 
-def step_body(bodys, joint, rate = 0.004, threshold = 0): #each joint has a flaw rate to be partial of itself.
+def step_body(bodys, joint, rate = 0.004, threshold = 0, upper_bound=1): #each joint has a flaw rate to be partial of itself.
     '''
     joint: (num_envs, num) OR a single int, 每个环境对应的1个坏损关节 
         #TODO: joint will become (num_envs, num), num means the number of flawed joints.
@@ -402,7 +402,7 @@ def step_body(bodys, joint, rate = 0.004, threshold = 0): #each joint has a flaw
     else:
         bodys[:, joint] *= t
         if threshold >0: # Here we assume that joint must be a single int
-            t = (bodys[:,joint] < threshold) * torch.rand(num_envs, device = bodys.device)
+            t = (bodys[:,joint] < threshold) * torch.rand(num_envs, device = bodys.device) * (torch.rand(num_envs, device= bodys.device) < rate) * upper_bound
             t = t.to(bodys.device)
             t = 1/(1 - t)
             bodys[:,joint] *= t
@@ -413,7 +413,7 @@ def step_body(bodys, joint, rate = 0.004, threshold = 0): #each joint has a flaw
 def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg_scale,
                     num_eval_ep=10, max_test_ep_len=1000,
                     state_mean=None, state_std=None,
-                    body_mean=None, body_std=None, render=False, prompt_policy=None, nobody=False):
+                    body_mean=None, body_std=None, render=False, prompt_policy=None, nobody=False, upper_bound=1):
 
     eval_batch_size = num_eval_ep  # required for forward pass
 
@@ -464,7 +464,7 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
                                 dtype=torch.float32, device=device) # Here we assume that obs = state !!
         # bodys = torch.ones((eval_batch_size, max_test_ep_len, body_dim),
         #                         dtype=torch.float32, device=device)
-        running_body , joints = flaw_generation(eval_batch_size, bodydim = body_dim, fixed_joint=[-1], device=device)
+        running_body , joints = flaw_generation(eval_batch_size, bodydim = body_dim, fixed_joint=[-1], device=device, upper_bound=upper_bound)
         running_body = running_body.to(device)
         bodys = torch.ones(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32).to(device)
         # bodys = torch.transpose(bodys, 0, 1).to(device)
@@ -518,17 +518,18 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
 
             if t < context_len:
                 if not nobody:
-                    if t!=0:
-                        _, _, body_preds = model.forward(timesteps[:,:context_len],
-                                                    states[:,:context_len],
-                                                    actions[:,:context_len],
-                                                    body= bodys[:,:context_len])
-                        body_cls, body_reg = body_preds
-                        tmp = body_cls[:,t].argmax(dim=1).to(device) # (env,)
-                        # print(torch.scatter(torch.ones(eval_batch_size,body_dim).to(device), 1, tmp.unsqueeze(-1), body_reg[:,t]).shape)
-                        bodys[:,t] = torch.scatter(torch.ones(eval_batch_size,body_dim).to(device), 1, tmp.unsqueeze(-1), body_reg[:,t])
-                        # tmp[body_cls.argmax(dim=1)]
-                        # bodys[:,t] = torch.ones(body_dim)
+                    bodys[:,t] = running_body.detach()
+                    # if t!=0:
+                    #     _, _, body_preds = model.forward(timesteps[:,:context_len],
+                    #                                 states[:,:context_len],
+                    #                                 actions[:,:context_len],
+                    #                                 body= bodys[:,:context_len])
+                    #     body_cls, body_reg = body_preds
+                    #     tmp = body_cls[:,t].argmax(dim=1).to(device) # (env,)
+                    #     # print(torch.scatter(torch.ones(eval_batch_size,body_dim).to(device), 1, tmp.unsqueeze(-1), body_reg[:,t]).shape)
+                    #     bodys[:,t] = torch.scatter(torch.ones(eval_batch_size,body_dim).to(device), 1, tmp.unsqueeze(-1), body_reg[:,t])
+                    #     # tmp[body_cls.argmax(dim=1)]
+                    #     # bodys[:,t] = torch.ones(body_dim)
                     _, act_preds, _ = model.forward(timesteps[:,:context_len],
                                                 states[:,:context_len],
                                                 actions[:,:context_len],
@@ -549,9 +550,11 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
                                             actions[:, t-context_len+1:t+1],
                                             body=bodys[:, t-context_len+1:t+1])
                     body_cls, body_reg = body_preds
-                    tmp = body_cls[:,-1].argmax(dim=1).to(device) # (env,)
+                    bodys[:,t] = body_reg[:,-1].detach()
+
+                    # tmp = body_cls[:,-1].argmax(dim=1).to(device) # (env,)
                     # print(torch.scatter(torch.ones(eval_batch_size,body_dim).to(device), 1, tmp.unsqueeze(-1), body_reg[:,t]).shape)
-                    bodys[:,t] = torch.scatter(torch.ones(eval_batch_size,body_dim).to(device), 1, tmp.unsqueeze(-1), body_reg[:,-1])
+                    # bodys[:,t] = torch.scatter(torch.ones(eval_batch_size,body_dim).to(device), 1, tmp.unsqueeze(-1), body_reg[:,-1])
                     # bodys[:,t] = body_preds[:,-1].detach()
                     _, act_preds, _ = model.forward(timesteps[:, t-context_len+1:t+1],
                                             states[:, t-context_len+1:t+1],
@@ -1069,7 +1072,14 @@ def get_dataset_config(dataset):
         datafile = ["Trajectory_IPPO_2", "Trajectory_IPPO_4"]
         i_magic_list = [f"PPO_I_{x}" for x in range(12)]
         eval_body_vec = [1 for _ in range(12)]
-
+    if dataset == "IPPO_UB3":
+        datafile = ["Trajectory_IPPO_UB3"]
+        i_magic_list = [f"PPO_I_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "IPPO7":
+        datafile = ["Trajectory_IPPO_7","Trajectory_IPPO_8"]
+        i_magic_list = [f"PPO_I_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
     if dataset == "faulty":
         datafile = "P20F10000-vel0.5-v0"
         i_magic_list = ["none", "LFH", "LFK", "RFH", "RFK", "LBH", "LBK", "LBA", "RBH", "RBK", "RBA"]

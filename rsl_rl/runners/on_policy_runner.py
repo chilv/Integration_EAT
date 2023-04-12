@@ -83,13 +83,12 @@ class OnPolicyRunner:
         _, _ = self.env.reset()
     
     
-    def learn(self, num_learning_iterations, init_at_random_ep_len=False, body_dim = 0, flawed_joint = [-1], flawed_rate = 1):
+    def learn(self, num_learning_iterations, init_at_random_ep_len=False, body_dim = 0, flawed_joint = [-1], flawed_rate = -1):
         # initialize writer
         if self.log_dir is not None and self.writer is None:
             self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
         if init_at_random_ep_len:
             self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
-        bodys, joints = flaw_generation(self.env.num_envs, body_dim, flawed_joint, flawed_rate, device = self.device)
         obs = self.env.get_observations()
         privileged_obs = self.env.get_privileged_observations()
         critic_obs = privileged_obs if privileged_obs is not None else obs
@@ -108,6 +107,7 @@ class OnPolicyRunner:
 
         for it in range(self.current_learning_iteration, tot_iter):
             start = time.time()
+            bodys, joints = flaw_generation(self.env.num_envs, body_dim, flawed_joint, flawed_rate, device = self.device)
             # Rollout
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
@@ -118,7 +118,7 @@ class OnPolicyRunner:
                     #------------------------
                     obs, privileged_obs, rewards, dones, infos = self.env.step(actions, bodys)
                     # pdb.set_trace()
-                    bodys = step_body(bodys, joints, 0.004)
+                    bodys = step_body(bodys, joints, 0.04)
                     critic_obs = privileged_obs if privileged_obs is not None else obs
                     obs, critic_obs, rewards, dones = obs.to(self.device), critic_obs.to(self.device), rewards.to(self.device), dones.to(self.device)
                     self.alg.process_env_step(rewards, dones, infos)
