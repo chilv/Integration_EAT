@@ -1,4 +1,6 @@
-#试图将所有args统一到yaml格式
+# 试图将所有args统一到yaml格式
+# 
+
 # alg: 
 batch_size: 512
 context_len: 20
@@ -22,7 +24,7 @@ num_updates_per_iter: 100
 seed: 66
 warmup_steps: 10000
 wt_decay: 0.005
-algorithm_name: eat_test
+algorithm_name: Eat
 body_loss_w: 1
 
 # env:

@@ -25,42 +25,22 @@ import statistics
 import pdb
 from collections import Counter
 
-
 from tqdm import trange, tqdm
 
 
-def disable_leg(actions, target:str ="joint", index:int = 2):
-    """用以让机器狗某条退或者某个关节失能，
-    暂时只提供单关节失能用以初步测试
-
-    Args:
-        actions (_type_): 原动作
-        target: 标识需要失能的目标类别
-        index: 需要失能的具体目标
-
-    Returns:
-        _type_: 失能后动作
-    """
-    if target == "joint" :
-        actions[:,index]=0 #将指定索引的关节置0，暂定左前腿的2号关节失能
-    elif target == "leg" :
-        actions[:, 3*index:3*index+3] = -1.0
-    else:
-        pass
-        
-    return actions
-
 def play(args, faulty_tag = -1, flawed_rate = 1):
-    rtg_scale = 1000      # normalize returns to go
-    state_dim = 48
-    act_dim = 12
-    body_dim = 12
+    
+    state_dim = args["state_dim"]
+    act_dim = args["act_dim"]
+    body_dim = args["body_dim"]
+    ##-----
 
-    context_len = 20      # K in decision transformer
-    n_blocks = 6            # num of transformer blocks
-    embed_dim = 128          # embedding (hidden) dim of transformer #! 原值128 #512
-    n_heads = 1              # num of transformer heads
-    dropout_p = 0.1          # dropout probability
+    context_len = args["context_len"]      # K in decision transformer
+    n_blocks = args["n_blocks"]            # num of transformer blocks
+    embed_dim = args["embed_dim"]          # embedding (hidden) dim of transformer
+    n_heads = args["n_heads"]              # num of transformer heads
+    dropout_p = args["dropout_p"]          # dropout probability
+    
 
     print("loading pre_record stds,means...")
     model_path = os.path.join(parentdir, "EAT_runs/EAT_IPPO_09/")

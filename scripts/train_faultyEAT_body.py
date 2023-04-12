@@ -28,9 +28,7 @@ from tqdm import trange, tqdm
 import yaml
 
 
-def train():
-    with open("./Integration_EAT/scripts/args.yaml", "r") as fargs:
-        args = yaml.safe_load(fargs)
+def train(args):
 
     state_dim = args["state_dim"]
     act_dim = args["act_dim"]
@@ -65,7 +63,6 @@ def train():
         else:
             print(p, " doesn't exist~")
 
-    # env = A1(num_envs=args.num_eval_ep, robot=eval_env, noise=args.noise)
     env_args = get_args()
 
     env_cfg, train_cfg = task_registry.get_cfgs(name =env_args.task)
@@ -218,6 +215,9 @@ def train():
     state_mean = model.state_mean.to(device)
     state_std = model.state_std.to(device)
     # body_preds = None
+    with open(os.path.join(log_dir, "args.yaml") , "w") as log_for_arg:
+        print(yaml.dump_all([args, env_args], log_for_arg))
+        
     for epoch in trange(n_epochs):
         # pdb.set_trace()
         log_action_losses = []
@@ -341,9 +341,6 @@ def train():
         traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
         traced_script_module.save(save_model_path+str(epoch%10)+".jit")
 
-    with open(os.path.join(log_dir, "args.yaml") , "w") as log_for_arg:
-        print(yaml.dump_all([args, env_args], log_for_arg))
-
     tqdm.write("=" * 60)
     tqdm.write("finished training!")
     tqdm.write("=" * 60)
@@ -370,43 +367,7 @@ def train():
 
 if __name__ == "__main__":
 
-    # parser = argparse.ArgumentParser()
-
-    # parser.add_argument('--dataset', type=str, default='IPPO8')
-
-    # parser.add_argument('--max_eval_ep_len', type=int, default=1000)
-    # parser.add_argument('--num_eval_ep', type=int, default=1024)      #事实上此参数决定了测试环境数量 原值10
-    # parser.add_argument('--noise', type=int, help="noisy environemnt for evaluation", default=0)
-
-    # parser.add_argument('--dataset_dir', type=str, default='Integration_EAT/data_2/')
-    # parser.add_argument('--log_dir', type=str, default='Integration_EAT/EAT_runs/')
-    # parser.add_argument('--cut', type=int, default=0)
-
-    # parser.add_argument('--context_len', type=int, default=20)  #50 试一下
-    # parser.add_argument('--n_blocks', type=int, default=6)
-    # parser.add_argument('--embed_dim', type=int, default=128)   #! 试图修改transformer规模
-    # parser.add_argument('--n_heads', type=int, default=1)
-    # parser.add_argument('--dropout_p', type=float, default=0.1)
-
-    # parser.add_argument('--batch_size', type=int, default=512)
-    # parser.add_argument('--lr', type=float, default=1e-4)
-    # parser.add_argument('--wt_decay', type=float, default=0.005)
-    # parser.add_argument('--warmup_steps', type=int, default=10000)
-
-    # parser.add_argument('--n_epochs_ref', type=float, default=1)
-    # parser.add_argument('--num_updates_per_iter', type=int, default=100)
-    # parser.add_argument('--nobody', default=False, action='store_true', help="use DT")
-    # parser.add_argument('--model_dir', type=str, default="", help="if not None, load model")
-
-    # parser.add_argument('--wandboff', default=False, action='store_true', help="Disable wandb")
-
-    # parser.add_argument('--device', type=str, default='cuda:0')
-    # parser.add_argument('--note', type=str, default='')
-    # parser.add_argument('--seed', type=int, default=66)
-
-    # args = parser.parse_args()
-    # args, unknown = parser.parse_known_args()
-
-    # args.model_dir = "/NAS2020/Workspaces/DRLGroup/wuxinyuan/leggedrobots/Integration_EAT/EAT_runs/EAT_IPPO_09"
-    train()
+    with open("./Integration_EAT/scripts/args.yaml", "r") as fargs:
+        args = yaml.safe_load(fargs)
+    train(args)
     # preyaml(args)

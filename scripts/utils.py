@@ -451,6 +451,27 @@ def step_body(bodys, joint, rate = 0.004, threshold = 0): #each joint has a flaw
 
     return bodys
 
+def disable_leg(actions, target:str ="joint", index:int = 2):
+    """用以让机器狗某条退或者某个关节失能，
+    暂时只提供单关节失能用以初步测试
+
+    Args:
+        actions (_type_): 原动作
+        target: 标识需要失能的目标类别
+        index: 需要失能的具体目标
+
+    Returns:
+        _type_: 失能后动作
+    """
+    if target == "joint" :
+        actions[:,index]=0 #将指定索引的关节置0，暂定左前腿的2号关节失能
+    elif target == "leg" :
+        actions[:, 3*index:3*index+3] = -1.0
+    else:
+        pass
+        
+    return actions
+
 def evaluate_on_env_batch_distill(model, device, context_len, env,
                     num_eval_ep=10, max_test_ep_len=1000,
                     state_mean=None, state_std=None):
@@ -607,7 +628,7 @@ def evaluate_on_env_batch_body(model, device, context_len, env, body_target, rtg
 
             actions[:,t] = act
             total_reward += np.sum(running_reward.detach().cpu().numpy())
-            total_rewards += running_reward.detach().cpu().numpy() * (dones == 0)
+            total_rewards += running_reward.detach().cpu().numpy() * (done == 0)
             dones += ~done.detach().cpu().numpy()
 
             running_body = step_body(running_body, joints, rate = 0.04, threshold=0.4)   
@@ -709,8 +730,8 @@ def evaluate_with_env_batch_body(model, device, context_len, env, body_target, r
 
             actions[:,t] = act
             total_reward += np.sum(running_reward.detach().cpu().numpy())
-            total_rewards += running_reward.detach().cpu().numpy() * (dones == 0)
-            dones += done.detach().cpu().numpy()
+            total_rewards += running_reward.detach().cpu().numpy() * (done == 0)
+            dones += ~done.detach().cpu().numpy()
 
             running_body = step_body(running_body, joints)   
 
@@ -920,13 +941,15 @@ class D4RLTrajectoryDataset(Dataset):
             traj['observations'] = (traj['observations'] - self.state_mean) / self.state_std
 
         if leg_trans_pro:
-            self.body_mean, self.body_std = np.mean(bodies, axis=0), np.std(bodies, axis=0) + 1e-6
+            pass
+            # self.body_mean, self.body_std = np.mean(bodies, axis=0), np.std(bodies, axis=0) + 1e-6
             # traj['returns_to_go'] = (traj['returns_to_go'] - self.body_mean) / self.body_std
 
 
     def get_state_stats(self, body=False):
         if body:
-            return self.state_mean, self.state_std, self.body_mean, self.body_std
+            pass
+            # return self.state_mean, self.state_std, self.body_mean, self.body_std
         return self.state_mean, self.state_std
 
     @property
@@ -1141,8 +1164,8 @@ def get_dataset_config(dataset):
         eval_env = "none"
     
     if dataset == "IPPOtest":
-        datafile = "Trajectory_IPPO"
-        i_magic_list = [f"PPO_I_{0}"]
+        datafile = "Trajectory_IPPO_3"
+        i_magic_list = [f"PPO_I_{x}" for x in range(2)]
         eval_body_vec = [1 for _ in range(12)]
     if dataset == "IPPO":
         datafile = "Trajectory_IPPO"
@@ -1162,6 +1185,10 @@ def get_dataset_config(dataset):
         eval_body_vec = [1 for _ in range(12)]
     if dataset == "IPPO8":
         datafile = "Trajectory_IPPO_8"
+        i_magic_list = [f"PPO_I_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "IPPOUB3":
+        datafile = "Trajectory_IPPO_UB3"
         i_magic_list = [f"PPO_I_{x}" for x in range(12)]
         eval_body_vec = [1 for _ in range(12)]
     if dataset == "faulty":
