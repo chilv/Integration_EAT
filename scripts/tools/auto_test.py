@@ -129,9 +129,9 @@ def test_EAT(args, env, EAT_model, faulty_tag = -1, flawed_rate = 1):
     
     timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
     timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
-    actions = torch.zeros((eval_batch_size, max_test_ep_len, act_dim),
+    actions = torch.zeros((eval_batch_size, max_test_ep_len, args["act_dim"]),
                                 dtype=torch.float32, device=device)
-    states = torch.zeros((eval_batch_size, max_test_ep_len, state_dim),
+    states = torch.zeros((eval_batch_size, max_test_ep_len, args["state_dim"]),
                         dtype=torch.float32, device=device)
     total_rewards = np.zeros(eval_batch_size)
     total_length = np.zeros(eval_batch_size)
@@ -145,17 +145,17 @@ def test_EAT(args, env, EAT_model, faulty_tag = -1, flawed_rate = 1):
             states[:,t,:] = running_state
             states[:,t,:] = (states[:,t,:] - state_mean) / state_std
 
-            if t < context_len:
-                _, act_preds, _ = EAT_model.forward(timesteps[:,:context_len],
-                                            states[:,:context_len],
-                                            actions[:,:context_len],
-                                            body=bodies[:,:context_len])
+            if t < args["context_len"]:
+                _, act_preds, _ = EAT_model.forward(timesteps[:,:args["context_len"]],
+                                            states[:,:args["context_len"]],
+                                            actions[:,:args["context_len"]],
+                                            body=bodies[:,:args["context_len"]])
                 act = act_preds[:, t].detach()
             else:
-                _, act_preds, _ = EAT_model.forward(timesteps[:,t-context_len+1:t+1],
-                                        states[:,t-context_len+1:t+1],
-                                        actions[:,t-context_len+1:t+1],
-                                        body=bodies[:,t-context_len+1:t+1])
+                _, act_preds, _ = EAT_model.forward(timesteps[:,t-args["context_len"]+1:t+1],
+                                        states[:,t-args["context_len"]+1:t+1],
+                                        actions[:,t-args["context_len"]+1:t+1],
+                                        body=bodies[:,t-args["context_len"]+1:t+1])
                 act = act_preds[:, -1].detach()
             
             # body, _ = flaw_generation(ENV_NUMS, fixed_joint = [faulty_tag], flawed_rate = flawed_rate, device = )
@@ -233,7 +233,7 @@ if __name__ == '__main__':
     # act_dim = args["act_dim"]
     # body_dim = args	["body_dim"]
 
-    # context_len = 20      # K in decision transformer
+    # args["context_len"] = 20      # K in decision transformer
     # n_blocks = 6            # num of transformer blocks
     # embed_dim = 128          # embedding (hidden) dim of transformer 
     # n_heads = 1              # num of transformer heads
@@ -245,7 +245,7 @@ if __name__ == '__main__':
     #         act_dim=act_dim,
     #         n_blocks=n_blocks,
     #         h_dim=embed_dim,
-    #         context_len=context_len,
+    #         args["context_len"]=args["context_len"],
     #         n_heads=n_heads,
     #         drop_p=dropout_p,
     #         state_mean=args['state_mean'], 
