@@ -99,11 +99,6 @@ class LeggedRobot(BaseTask):
                 if not -1 in flawed_joint:
                     self.torques[:,flawed_joint] = self.torques[:,flawed_joint] * flawed_rate
                     # self.torques[:,flawed_joint] = torch.min(self.torques[:,flawed_joint], torch.ones_like(self.torques)[:,flawed_joint] * flawed_rate)  ## 这里改成了阈值而不是比例。
-
-            # self.torques[:,9:12] = 0 #某条退全部失力
-            # self.torques[:,6] = 0 #臀部关节失力
-            # self.torques[:,7] = 0 #膝部关节失力
-            # self.torques[:,8] = 0 #踝部关节失力
             #------------------
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
             self.gym.simulate(self.sim)

@@ -493,10 +493,11 @@ class LeggedTransformerBody(nn.Module):
         body_embeddings = self.embed_body(body) + time_embeddings
 
         # stack rtg, states and actions and reshape sequence as
-        # (r_0, s_0, a_0, r_1, s_1, a_1, r_2, s_2, a_2 ...)
+        # (s_0, b_0, a_0, s_1, b_1, a_1, s_2, b_2, a_2 ...)
+        # inference:s->b->a
 
         h = torch.stack(
-            (body_embeddings, state_embeddings, action_embeddings), dim=1
+            (state_embeddings, body_embeddings, action_embeddings), dim=1
         ).permute(0, 2, 1, 3).reshape(B, 3 * T, self.h_dim)
 
 
@@ -506,22 +507,22 @@ class LeggedTransformerBody(nn.Module):
         h = self.transformer(h)
 
         # get h reshaped such that its size = (B x 3 x T x h_dim) and
-        # h[:, 0, t] is conditioned on the input sequence r_0, s_0, a_0 ... r_t
-        # h[:, 1, t] is conditioned on the input sequence r_0, s_0, a_0 ... r_t, s_t
-        # h[:, 2, t] is conditioned on the input sequence r_0, s_0, a_0 ... r_t, s_t, a_t
+        # h[:, 0, t] is conditioned on the input sequence s_0, b_0, a_0 ... s_t
+        # h[:, 1, t] is conditioned on the input sequence s_0, b_0, a_0 ... s_t, b_t, 
+        # h[:, 2, t] is conditioned on the input sequence s_0, b_0, a_0 ... s_t, b_t, a_t
         # that is, for each timestep (t) we have 3 output embeddings from the transformer,
         # each conditioned on all previous timesteps plus 
-        # the 3 input variables at that timestep (r_t, s_t, a_t) in sequence.
+        # the 3 input variables at that timestep (s_t, b_t, a_t) in sequence.
 
         h = h.reshape(B, T, 3, self.h_dim).permute(0, 2, 1, 3)
 
         # get predictions
 
-        return_preds = self.predict_body(h[:,0])     # predict next rtg given r, s, a
-        state_preds = self.predict_state(h[:,2])    # predict next state given r, s, a
-        action_preds = self.predict_action(h[:,1])  # predict action given r, s
+        state_preds = self.predict_state(h[:,2])    # predict next state given s, b, a
+        action_preds = self.predict_action(h[:,1])  # predict action given s, b
+        body_preds = self.predict_body(h[:,0])     # predict next body given s
         
-        return state_preds, action_preds, return_preds
+        return state_preds, action_preds, body_preds
     
 class MLPBCModel(nn.Module):
     

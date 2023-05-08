@@ -23,3 +23,6 @@
 
 #body预测准确度
 /tools/bodypre_analyse/
+
+#EAT_预测准确度
+/tools/EAT_test/

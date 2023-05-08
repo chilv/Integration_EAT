@@ -22,7 +22,7 @@ from legged_gym.utils import task_registry, Logger, get_args
 from model import LeggedTransformerBody
 import pdb
 
-def bodypre_test(argpass, model, env, faulty_tag:int = -1, flawed_rate:int = 1):
+def bodypre_test(argpass, model, env, faulty_tag:int = -1, flawed_rate:int = 1, use_GT:bool = False, use_pre:bool = False):
     #===================================================================
     # arg init
     max_test_ep_len=1000    #iters
@@ -32,6 +32,7 @@ def bodypre_test(argpass, model, env, faulty_tag:int = -1, flawed_rate:int = 1):
     body_dim = argpass["body_dim"]
     device = argpass["device"]
     context_len = argpass["context_len"]
+    postfix = ""
     
     #====================================================================================    
     # zeros place holders
@@ -60,15 +61,18 @@ def bodypre_test(argpass, model, env, faulty_tag:int = -1, flawed_rate:int = 1):
     with torch.no_grad():
         wrong_pre = 0
         pre_diff = 0
-        for t in range(max_test_ep_len):
-            total_timesteps += (dones == 0)
-            
-            faulty_taget = faulty_tag
-            body_target = body_oringe.copy()
+        if use_pre:
+            postfix+="_Pre"
+        total_timesteps += (dones == 0)
+        faulty_taget = faulty_tag
+        body_target = body_oringe.copy()
+        if use_GT:
             body_target[faulty_taget] = flawed_rate
-            body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
-            bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32).clone()
+            postfix+="_GT"
+        body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
+        bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32).clone()
 
+        for t in range(max_test_ep_len):
             states[:,t,:] = running_state
             states[:,t,:] = (states[:,t,:] - state_mean) / state_std
 
@@ -84,12 +88,13 @@ def bodypre_test(argpass, model, env, faulty_tag:int = -1, flawed_rate:int = 1):
                                         states[:,t-context_len+1:t+1],
                                         actions[:,t-context_len+1:t+1],
                                         body=bodies[:,t-context_len+1:t+1])
-                bodies[:, t] = body_preds[:, -1].detach()   #加这一句可以让学出来的body返回回去
+                if use_pre:
+                    bodies[:, t] = body_preds[:, -1].detach()   #加这一句可以让学出来的body返回回去
                 for i in range(eval_batch_size):
-                    if torch.argmin(bodies[i,t,:]) != faulty_taget:
+                    if torch.argmin(body_preds[i,-1,:]) != faulty_taget:
                         wrong_pre += 1
 
-                pre_diff += bodies[:,t,faulty_tag] - bodies[:,0,faulty_tag]
+                pre_diff += body_preds[:,-1,faulty_tag] - torch.ones_like(body_preds[:,-1,faulty_tag]) * flawed_rate
                 # if t % 900 == 0 and t > 0:
                 #     pdb.set_trace()
                 # print(torch.argmin(bodies[:,t,:], dim=-1))
@@ -131,14 +136,14 @@ def bodypre_test(argpass, model, env, faulty_tag:int = -1, flawed_rate:int = 1):
     results['eval/aver_diff'] = np.mean(pre_diff.detach().cpu().numpy())/(max_test_ep_len-20)
     
     print(f"tag{faulty_taget} rate{flawed_rate}'s \
-        average reward is :{results['eval/avg_reward']} \
+        \naverage reward is :{results['eval/avg_reward']} \
           \naverage length is :{results['eval/avg_ep_len']} \
-          \nwrong pre rate is {results['eval/right_rate']} \
+          \nright pre rate is {results['eval/right_rate']} \
         \naverage diff is {results['eval/aver_diff']} \
         \n")
-    logger.print_rewards()
+    # logger.print_rewards()
     
-    return results['eval/avg_reward'], results['eval/right_rate'], results['eval/aver_diff']  #reward, unprecious_rate, aver_diff
+    return results['eval/avg_reward'], results['eval/right_rate'], results['eval/aver_diff'],postfix  #reward, unprecious_rate, aver_diff, postfix
     
 
     
@@ -148,7 +153,7 @@ if __name__ == "__main__":
     
     #==========================================
     #some args init
-    device = torch.device("cuda:0")         #setting flexible
+    device = torch.device(args["device"])         #setting flexible
     
     state_dim = args["state_dim"]
     act_dim = args["act_dim"]
@@ -159,7 +164,7 @@ if __name__ == "__main__":
     embed_dim = args["embed_dim"]          # embedding (hidden) dim of transformer
     n_heads = args["n_heads"]              # num of transformer heads
     dropout_p = args["dropout_p"]          # dropout probability
-    model_name = "EAT++20mse_IPPO3_02/"
+    model_name = "EATBody_EBODY3_00"
     
     eval_batch_size = 100  # envs
     
@@ -168,7 +173,7 @@ if __name__ == "__main__":
     print("loading pre_record stds,means...")
     model_path = os.path.join("./Integration_EAT/EAT_runs/", model_name)
     
-    state_mean, state_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
+    state_mean, state_std = np.load(os.path.join(model_path,"model.state_mean.npy")), np.load(os.path.join(model_path,"model.state_std.npy"))
     state_mean = torch.from_numpy(state_mean).to(device)
     state_std = torch.from_numpy(state_std).to(device)
     
@@ -183,13 +188,14 @@ if __name__ == "__main__":
             drop_p=dropout_p
             ).to(device)
     model.load_state_dict(torch.load(
-        os.path.join(model_path,"model4000epoch.pt"), map_location = "cuda:0"
+        os.path.join(model_path,"model_best.pt"), map_location = "cuda:0"
     ))
     model.eval()
     
     #======================================================================
     #prepare envs
     env_args = get_args()
+    env_args.sim_device = args["device"]
     
     env_cfg, _ = task_registry.get_cfgs(name=args["task"])
     # override some parameters for testing
@@ -222,15 +228,27 @@ if __name__ == "__main__":
     Rews = np.zeros((len(tags), len(rates)))
     Prec = np.zeros((len(tags), len(rates)))
     Diff = np.zeros((len(tags), len(rates)))
+    useGT = True    #whether use ground truth
+    usePre = True    #whether use self pre
     for tag in tags:
         for rate in rates:
             # pdb.set_trace()
-            Rews[tag, int(rate*20)],Prec[tag, int(rate*20)],Diff[tag, int(rate*20)] = bodypre_test(argpass, model, env, faulty_tag = tag, flawed_rate = rate)
-    
-    EAT_df = pd.DataFrame(np.concatenate(Rews, Prec, Diff), axis = 1)
-    EAT_df.index = tags
-    EAT_df.columns = rates*3
+            Rews[tag, int(rate*20)],Prec[tag, int(rate*20)],Diff[tag, int(rate*20)],postfix \
+            = bodypre_test(argpass, model, env, faulty_tag = tag, flawed_rate = rate, use_GT=useGT, use_pre=usePre)
+    if useGT:
+        model_name += postfix
+    EAT_df = pd.concat([
+        pd.DataFrame(Rews, index=tags,columns=rates),
+        pd.DataFrame(["=" for _ in range(len(rates))], index = "Prec"),
+        pd.DataFrame(Prec, index = tags),
+        pd.DataFrame(["=" for _ in range(len(rates))], index = "Diff"),
+        pd.DataFrame(Diff,index = tags)
+        ])  
+
     EAT_res = EAT_df.to_csv(os.path.join("./Integration_EAT/scripts/tools/bodypre_analyse", f"{model_name}.csv"), mode='w')
+    # EAT_res = EAT_df.to_csv(os.path.join("./Integration_EAT/scripts/tools/bodypre_analyse", f"{model_name}_Rews.csv"), mode='w')
+    # EAT_res = EAT_df.to_csv(os.path.join("./Integration_EAT/scripts/tools/bodypre_analyse", f"{model_name}_Prec.csv"), mode='w')
+    # EAT_res = EAT_df.to_csv(os.path.join("./Integration_EAT/scripts/tools/bodypre_analyse", f"{model_name}_Diff.csv"), mode='w')
     print("file written")
     
     

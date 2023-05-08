@@ -9,6 +9,8 @@ import inspect
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
 os.sys.path.insert(0, parentdir)
+os.sys.path.insert(0, os.path.dirname(parentdir))
+
 import random
 import csv
 from datetime import datetime
@@ -136,7 +138,7 @@ def play(args, env, train_cfg, fault_type = "none", fault_rate = 1):
 	timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
 	timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
 	actions = torch.zeros((eval_batch_size, max_test_ep_len, act_dim),
-                                dtype=torch.float32, device=device)
+                        dtype=torch.float32, device=device)
 	states = torch.zeros((eval_batch_size, max_test_ep_len, state_dim),
 						dtype=torch.float32, device=device)
 	# body_target = (torch.tensor(body_target, dtype=torch.float32, device=device) - body_mean) / body_std

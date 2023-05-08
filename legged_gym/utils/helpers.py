@@ -165,7 +165,7 @@ def get_args():
             "help": "Resume training or start testing from a checkpoint. Overrides config file if provided."},
         {"name": "--resume", "action": "store_true", "default": False,
             "help": "Resume training from a checkpoint"},
-        {"name": "--experiment_name", "type": str,
+        {"name": "--experiment_name", "type": str, "default": "Models",
             "help": "Name of the experiment to run or load. Overrides config file if provided."},
         {"name": "--run_name", "type": str,
             "help": "Name of the run. Overrides config file if provided."},
@@ -173,7 +173,7 @@ def get_args():
             "help": "Name of the run to load when resume=True. If -1: will load the last run. Overrides config file if provided."},
         {"name": "--checkpoint", "type": int,
             "help": "Saved model checkpoint number. If -1: will load the last checkpoint. Overrides config file if provided."},
-        {"name": "--body_dim", "type":int, "default":0},
+        {"name": "--body_dim", "type":int, "default":12},
         
         {"name": "--headless", "action": "store_true",
             "default": False, "help": "Force display off at all times"},

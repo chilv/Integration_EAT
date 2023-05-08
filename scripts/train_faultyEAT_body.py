@@ -11,7 +11,6 @@ import random
 import csv
 from datetime import datetime
 import copy
-import math
 import numpy as np
 
 from legged_gym.envs import *
@@ -20,8 +19,8 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from utils import D4RLTrajectoryDataset, evaluate_on_env,  evaluate_on_env_batch_body, evaluate_with_env_batch_body, get_dataset_config, partial_traj #, get_d4rl_normalized_score,
-from model import DecisionTransformer, LeggedTransformer, LeggedTransformerPro, MLPBCModel
+from utils import D4RLTrajectoryDataset,D4RLTrajectoryDatasetForTert, evaluate_on_env_batch_body, get_dataset_config, partial_traj #, get_d4rl_normalized_score,
+from model import LeggedTransformerBody, LeggedTransformerPro
 import wandb
 from legged_gym.utils import task_registry, Logger 
 from tqdm import trange, tqdm
@@ -49,11 +48,11 @@ def train(args):
     embed_dim = args["embed_dim"]          # embedding (hidden) dim of transformer
     n_heads = args["n_heads"]              # num of transformer heads
     dropout_p = args["dropout_p"]          # dropout probability
-
+    
+    args["wandboff"] = True if "test" in args["dataset"] else args["wandboff"]
 
     datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config(args["dataset"])
     
-    # file_list = [f"a1magic{i_magic}-{datafile}.pkl" for i_magic in i_magic_list]
     file_list = [os.path.join(datafile, f"{i_magic}.pkl") for i_magic in i_magic_list]
     dataset_path_list_raw = [os.path.join(args["dataset_dir"], d) for d in file_list]
     dataset_path_list = []
@@ -64,16 +63,17 @@ def train(args):
             print(p, " doesn't exist~")
 
     env_args = get_args()
+    env_args.sim_device = args["device"]
 
-    env_cfg, train_cfg = task_registry.get_cfgs(name =env_args.task)
+    env_cfg, _ = task_registry.get_cfgs(name =env_args.task)
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, args["num_eval_ep"])
     env_cfg.terrain.curriculum = False
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
     env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]
+    
     env, _ = task_registry.make_env(name = env_args.task, args = env_args, env_cfg = env_cfg)
-    # env = A1(num_envs=args.num_eval_ep, noise=args.noise)#这里eval_env编译不通过，因为注册表中没有该环境，暂时跳过试一下
     
     # saves model and csv in this directory
     log_dir = args["log_dir"]
@@ -82,7 +82,6 @@ def train(args):
 
     # training and evaluation device
     device = torch.device(args["device"])
-
     start_time = datetime.now().replace(microsecond=0)
     start_time_str = start_time.strftime("%y-%m-%d-%H-%M-%S")
 
@@ -119,11 +118,6 @@ def train(args):
     print("model save path: " + save_model_path+".pt (.jit)")
     print("log csv save path: " + log_csv_path)
 
-
-    # config=vars(args)
-    # config["dataset path"] = str(dataset_path_list)
-    # config["model save path"] = save_model_path+".pt"
-    # config["log csv save path"] = log_csv_path
     args["dataset path"] = str(dataset_path_list)
     args["model save path"] = save_model_path+".pt"
     args["log csv save path"] = log_csv_path
@@ -149,7 +143,11 @@ def train(args):
         else:
             big_list = big_list + thelist[:args['cut']]
 
-    traj_dataset = D4RLTrajectoryDataset(big_list, context_len, rtg_scale=1000, leg_trans_pro=True)
+    # body_preds = None
+    with open(os.path.join(log_dir, model_file_name,"args.yaml") , "w") as log_for_arg:
+        print(yaml.dump_all([args, env_args], log_for_arg))
+        
+    traj_dataset = D4RLTrajectoryDatasetForTert(big_list, context_len, leg_trans_pro=True)
     assert body_dim == traj_dataset.body_dim
     
     state_mean, state_std = traj_dataset.get_state_stats(body=False)
@@ -163,7 +161,7 @@ def train(args):
                         )
 
     print("DataLoader complete!")
-    n_epochs = int(1e6 / len(traj_data_loader) * args["n_epochs_ref"])
+    n_epochs = int(1e6 / len(traj_data_loader) * args["n_epochs_ref"])  #default args["n_epochs_ref"] = 1
     num_updates_per_iter = len(traj_data_loader)   
     
     np.save(f"{save_model_path}.state_mean", state_mean)
@@ -171,7 +169,7 @@ def train(args):
     #---------------------------------------------------------------------------------------------------------------------------
     # if slices == 0:
     print("model preparing")
-    model = LeggedTransformerPro(
+    model = LeggedTransformerBody(
                 body_dim=body_dim,
                 state_dim=state_dim,
                 act_dim=act_dim,
@@ -182,13 +180,11 @@ def train(args):
                 drop_p=dropout_p,
                 state_mean=state_mean,
                 state_std=state_std,
-                # body_mean=body_mean,
-                # body_std=body_std
             ).to(device)
     
-    if args["model_dir"] != "":
+    if args["model_dir"] is not None:
         model.load_state_dict(torch.load(
-            os.path.join( args["model_dir"], "model_best.pt" ), map_location = "cuda:0"
+            os.path.join( args["model_dir"], "model_best.pt" ), map_location = args["device"]
         ))
         
     optimizer = torch.optim.AdamW(
@@ -214,9 +210,6 @@ def train(args):
     inner_bar = tqdm(range(num_updates_per_iter), leave = False)
     state_mean = model.state_mean.to(device)
     state_std = model.state_std.to(device)
-    # body_preds = None
-    with open(os.path.join(log_dir, "args.yaml") , "w") as log_for_arg:
-        print(yaml.dump_all([args, env_args], log_for_arg))
         
     for epoch in trange(n_epochs):
         # pdb.set_trace()
@@ -224,42 +217,70 @@ def train(args):
         log_body_losses = []
         model.train()
 
-        for timesteps, states, actions, body, traj_mask in iter(traj_data_loader):
+        for timesteps, states, actions, teacher_actions, body, traj_mask in iter(traj_data_loader):
 
             timesteps = timesteps.to(device)    # B x T
             states = states.to(device)          # B x T x state_dim
 
             actions = actions.to(device)        # B x T x act_dim
-            # returns_to_go = returns_to_go.to(device).unsqueeze(dim=-1) # B x T x 1
             body = body.to(device)  # B x T x body_dim
             body_target = torch.clone(body).detach().to(device)
             traj_mask = traj_mask.to(device)    # B x T
-            action_target = torch.clone(actions).detach().to(device)
-            body_target = torch.clone(body).detach().to(device)
-
-            _, action_preds, body_preds = model.forward(
+            action_target = torch.clone(teacher_actions).detach().to(device)
+            body_1 = torch.ones_like(actions)   #body full of 1.0
+               
+            _, _, body_preds = model.forward(
                                                             timesteps=timesteps,
                                                             states=states,
                                                             actions=actions,
+                                                            body = body_1
+                                                            # body=body
+                                                        )
+            
+            # mesure body loss
+            # 预测的body是当前body
+            body_preds = body_preds.clamp(0.0, 1.0)
+            # only consider non padded elements
+            target_joints = torch.argmin(body, dim=-1).unsqueeze(2)
+
+            #仅保留主要loss
+            body_main_loss = F.mse_loss(
+                body_preds.gather(
+                    dim=2,index = target_joints), 
+                body_target.gather(
+                    dim=2,index = target_joints), 
+                reduction='mean')
+            
+            #adversary loss
+            _, idx1 = torch.sort(torch.abs(body_preds.detach()-body_target), dim=-1, descending=False)
+            p = (idx1!=target_joints.expand(-1,-1,12)).nonzero()[:,-1].reshape((512,20,11)) #非最小元素的所有坐标
+            p = p[:,:,:2]
+            #按理说应该要body_adversary尽可能远离body_target
+            # 但由于目前的setting主要是从1下降到任意坏损值，所以偷懒写成body_adversary离1的距离越近越好
+            body_adversary_loss = torch.exp(
+                (body_preds.gather(dim=2,index = p) 
+                - body_target.gather(dim=2,index = target_joints).expand(-1,-1,2)).mean()
+            )
+            
+            body_preds = body_preds.view(-1, body_dim)[traj_mask.view(-1,) > 0]
+            body_target = body_target.view(-1, body_dim)[traj_mask.view(-1,) > 0]
+            body_loss = body_main_loss + body_adversary_loss 
+            + F.mse_loss(body_preds, body_target, reduction='mean')
+            
+            #measure action loss
+            _, action_preds, _ = model.forward(
+                                                            timesteps=timesteps,
+                                                            states=states,
+                                                            actions=actions,
+                                                            # body = body_1
                                                             body=body
                                                         )
-            # only consider non padded elements
-            body_preds = body_preds.view(-1, act_dim)[traj_mask.view(-1,) > 0]
-            body_target = body_target.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             action_preds = action_preds.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             action_target = action_target.view(-1, act_dim)[traj_mask.view(-1,) > 0]
-            
             action_loss = F.mse_loss(action_preds, action_target, reduction='mean')
-            # body_loss = F.cross_entropy(body_preds, body_target, reduction='mean')
-            body_loss = F.mse_loss(body_preds, body_target, reduction='mean')
-            total_loss = action_loss + args["body_loss_w"] * body_loss
-            
-            # print("=======================TARGET======================")
-            # print(action_target.detach())
-            # print("=======================PRED======================")
-            # print(action_preds.detach())
-            # print("=======================LOSS======================")
-            # print(action_loss.detach())
+        
+            total_loss = (args["action_loss_w"] * action_loss 
+                          + args["body_loss_w"] * body_loss).to(torch.float)
 
             optimizer.zero_grad()
             total_loss.backward()
@@ -271,31 +292,33 @@ def train(args):
             log_action_losses.append(action_loss.detach().cpu().item())
 
             if not args["wandboff"]:
-                wandb.log({"Loss_body": body_loss.detach().cpu().item(), "Loss_action": action_loss.detach().cpu().item()})
+                wandb.log({"Loss_body": body_loss.detach().cpu().item(), 
+                           "Loss_body_main": body_main_loss.detach().cpu().item(),
+                           "Loss_body_adv": body_adversary_loss.detach().cpu().item(),
+                           "Loss_action": action_loss.detach().cpu().item(),
+                           })
 
             total_updates += num_updates_per_iter
 
             inner_bar.update(1)
-
-        
         inner_bar.reset()
+        #end one epoch ^
+        #=====================================================================================================
 
         if epoch % max(int(5000/num_updates_per_iter), 1) == 0:
             # evaluate action accuracy
-
-            results = evaluate_with_env_batch_body(model, device, context_len, env, eval_body_vec, 1,
-                                                num_eval_ep, max_eval_ep_len, state_mean, state_std)
+            results = evaluate_on_env_batch_body(model = model, device=device, context_len=context_len, env=env, 
+                                                body_target=eval_body_vec, num_eval_ep = num_eval_ep, 
+                                                max_test_ep_len = max_eval_ep_len, state_mean = state_mean, 
+                                                state_std = state_std, body_pre = True)
 
         
             eval_avg_reward = results['eval/avg_reward']
             eval_avg_ep_len = results['eval/avg_ep_len']
-            eval_d4rl_score = results['eval/avg_reward']
-            # eval_avg_reward = eval_avg_ep_len = eval_d4rl_score = 1000
             
             mean_body_loss = np.mean(log_body_losses)
             mean_action_loss = np.mean(log_action_losses)
             time_elapsed = str(datetime.now().replace(microsecond=0) - start_time)
-
 
             log_str = ("=" * 60 + '\n' +
                     "time elapsed: " + time_elapsed  + '\n' +
@@ -303,31 +326,28 @@ def train(args):
                     "action loss: " +  format(mean_action_loss, ".5f") + '\n' +
                     "body loss: " +  format(mean_body_loss, ".5f") + '\n' +
                     "eval avg reward: " + format(eval_avg_reward, ".5f") + '\n' +
-                    "eval avg ep len: " + format(eval_avg_ep_len, ".5f") + 
-                    "eval score: " + format(eval_d4rl_score, ".5f")
+                    "eval avg ep len: " + format(eval_avg_ep_len, ".5f") #+ 
                 )
 
-            # print(log_str)
             tqdm.write(log_str)
-            # print("")
             if not args["wandboff"]:
-                wandb.log({"Evaluation Score": eval_avg_reward, "Episode Length": eval_avg_ep_len, "D4RL Score": eval_d4rl_score, 
-                    "Average Loss": mean_body_loss, "Total Steps": total_updates})
+                wandb.log({"Evaluation Score": eval_avg_reward, "Episode Length": eval_avg_ep_len, "Total Steps": total_updates})
             
             log_data = [time_elapsed, total_updates, mean_body_loss, mean_action_loss,
-                        eval_avg_reward, eval_avg_ep_len,
-                        eval_d4rl_score]
+                        eval_avg_reward, eval_avg_ep_len]
 
             csv_writer.writerow(log_data)
-
+            
             # save model
-            if eval_d4rl_score >= max_d4rl_score:
+            if eval_avg_reward >= max_d4rl_score:
                 tqdm.write("saving max score model at: " + save_model_path+"_best.pt(.jit)")
                 tqdm.write("max score: " + format(max_d4rl_score, ".5f"))
                 torch.save(model.state_dict(), save_model_path+"_best.pt")
                 traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
                 traced_script_module.save(save_model_path+"_best.jit")
-                max_d4rl_score = eval_d4rl_score
+                max_d4rl_score = eval_avg_reward
+        #end one eval & log
+        #========================================================================
 
         if epoch % 1000 == 0:
             torch.save(model.state_dict(), save_model_path+str(epoch)+"epoch.pt")
@@ -340,6 +360,8 @@ def train(args):
         torch.save(model.state_dict(), save_model_path+str(epoch%10)+".pt")
         traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
         traced_script_module.save(save_model_path+str(epoch%10)+".jit")
+    #end training
+    #=======================================================================================
 
     tqdm.write("=" * 60)
     tqdm.write("finished training!")
@@ -354,7 +376,6 @@ def train(args):
     tqdm.write("saved max score model at: " + save_model_path+"_best.pt")
     tqdm.write("saved last updated model at: " + save_model_path+".pt")
     tqdm.write("=" * 60)
-
     if not args["wandboff"]:
         wandb.finish()
 
