@@ -25,9 +25,11 @@ import yaml
 
 from tqdm import trange, tqdm
 
-
-def play(args, faulty_tag = -1, flawed_rate = 1):
+def play(model_name, faulty_tag = -1, flawed_rate = 1, MIN_EVAL_ENVs = 50):
     
+    with open(os.path.join("./Integration_EAT/",model_name,"args.yaml"), "r") as fargs:
+        args = next(yaml.safe_load_all(fargs))
+        
     state_dim = args["state_dim"]
     act_dim = args["act_dim"]
     body_dim = args["body_dim"]
@@ -42,12 +44,11 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     
 
     print("loading pre_record stds,means...")
-    model_path = os.path.join(parentdir, "EAT_runs/EAT_given_body_IPPO_02/")
+    model_path = os.path.join(parentdir, model_name)
     # model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
     state_mean, state_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
     # state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
     #init eval para
-    eval_batch_size = 50  # envs
     max_test_ep_len=1000    #iters
     nobody = False
     results = {}
@@ -66,14 +67,14 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     
     env_cfg, train_cfg = task_registry.get_cfgs(name=args["task"])
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, eval_batch_size)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, MIN_EVAL_ENVs)
     env_cfg.terrain.num_rows = 5
     env_cfg.terrain.num_cols = 5
     env_cfg.terrain.curriculum = False
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]# 更改速度设置以防命令采样到0的情况    
+    env_cfg.commands.ranges.lin_vel_x = [0.5, 0.5]# 更改速度设置以防命令采样到0的情况    
 
     # env = A1(num_envs=args.num_eval_ep, noise=args.noise)     #另一种环境初始化方式
     env, _ = task_registry.make_env(name=args["task"], args=env_args, env_cfg=env_cfg)
@@ -107,50 +108,67 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     #====================================================================================
     ##eval pre
     #init visualize
-    camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
-    camera_vel = np.array([1., 1., 0.])
-    camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
-    img_idx = 0
+    # camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
+    # camera_vel = np.array([1., 1., 0.])
+    # camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
+    
+    # img_idx = 0
+    
+    if faulty_tag <3:#leg0
+        camera_position = np.array([1.5,1.5,.5])
+        camera_vel = np.array([.4, 0., 0.])
+        camera_direction = np.array([-1.,-1.,-0.2])
+    elif faulty_tag <6:#leg1
+        camera_position = np.array([1.5,-1.5,.3])
+        camera_vel = np.array([.4, 0., 0.])
+        camera_direction = np.array([-1.,1.,0.])
+    elif faulty_tag <9:#leg2
+        camera_position = np.array([1.5,1.5,.5])
+        camera_vel = np.array([.4, 0., 0.])
+        camera_direction = np.array([-1.,-1.,-0.2])
+    elif faulty_tag <12:#leg3
+        camera_position = np.array([1.5,-1.5,.3])
+        camera_vel = np.array([.4, 0., 0.])
+        camera_direction = np.array([-1.,1.,0.])
+    
     
     timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
-    timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
+    timesteps = timesteps.repeat(env_cfg.env.num_envs, 1).to(device)
 
     logger = Logger(env.dt)
     
     with torch.no_grad():
         if True:
             # zeros place holders
-            actions = torch.zeros((eval_batch_size, max_test_ep_len, act_dim),
+            actions = torch.zeros((env_cfg.env.num_envs, max_test_ep_len, act_dim),
                                 dtype=torch.float32, device=device)
-            states = torch.zeros((eval_batch_size, max_test_ep_len, state_dim),
+            states = torch.zeros((env_cfg.env.num_envs, max_test_ep_len, state_dim),
                                 dtype=torch.float32, device=device)
 
             body_oringe = [1 for _ in range(12)]
             body_dim = len(body_oringe)
             
-            # if (faulty_tag != -1):
-            #     body_oringe[faulty_tag] = flawed_rate
-            # body_target = torch.tensor(body_oringe, dtype=torch.float32, device=device)
-            # body_target = (torch.tensor(body_target, dtype=torch.float32, device=device) - body_mean) / body_std
-            # bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32).clone()
-
             # init episode
             running_state = env.reset()[0]
-            running_reward = torch.zeros((eval_batch_size, ),
+            running_reward = torch.zeros((env_cfg.env.num_envs, ),
                                 dtype=torch.float32, device=device)
 
-            total_rewards = np.zeros(eval_batch_size)
-            dones = np.zeros(eval_batch_size)
-
+            total_rewards = np.zeros(env_cfg.env.num_envs)
+            dones = np.zeros(env_cfg.env.num_envs)
+            
+            env.set_camera(camera_position, camera_position + camera_direction)
+            
             for t in range(max_test_ep_len):
-
                 total_timesteps += (dones == 0)
-                faulty_taget = faulty_tag
                 body_target = body_oringe.copy()
-                body_target[faulty_taget] = flawed_rate
+                faulty_taget = faulty_tag if t > 210 else -1    #设置-1以防step时出错
+                if faulty_taget != -1:
+                    body_target[faulty_taget] = flawed_rate 
                 body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
-                bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32).clone()
-
+                bodies = body_target.expand(env_cfg.env.num_envs, max_test_ep_len, body_dim).type(torch.float32).clone()
+                
+                # bodies[-1,:,faulty_taget] = 1#设置对比可视化用，平时应注释
+                
                 states[:,t,:] = running_state
                 states[:,t,:] = (states[:,t,:] - state_mean) / state_std
 
@@ -168,7 +186,7 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
                                             # body=bodies[:,t-context_len+1:t+1])
                                             body=bodies[:,t-context_len+1:t+1] if not nobody else None)
                     act = act_preds[:, -1].detach()
-                    bodies[:, t] = body_preds[:, -1].detach()   #加这一句可以让学出来的body返回回去
+                    # bodies[:, t] = body_preds[:, -1].detach()   #加这一句可以让学出来的body返回回去
                 
                 running_state, _, running_reward, done, infos = env.step(act, flawed_joint = [faulty_taget], flawed_rate = flawed_rate) #if t > max_test_ep_len/8 else env.step(act, [-1])
                 
@@ -182,9 +200,9 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
                 #         filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames', f"{img_idx}.png")
                 #         env.gym.write_viewer_image_to_file(env.viewer, filename) 
                 #         img_idx += 1 
-                # if MOVE_CAMERA: #TODO: 这里可以设定视角变换，后续学习一下
-                #     camera_position += camera_vel * env.dt
-                #     env.set_camera(camera_position, camera_position + camera_direction)
+                if MOVE_CAMERA: #TODO: 这里可以设定视角变换，后续学习一下
+                    camera_position += camera_vel * env.dt
+                    env.set_camera(camera_position, camera_position + camera_direction)
             
                 actions[:, t] = act
 
@@ -201,7 +219,10 @@ def play(args, faulty_tag = -1, flawed_rate = 1):
     print(f"average reward is :{results['eval/avg_reward']}\naverage length is :{results['eval/avg_ep_len']}\n")
     logger.print_rewards()
 
-def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
+def play_withbody(model_name, faulty_tag = -1, flawed_rate = 1):
+    with open(os.path.join("./Integration_EAT/",model_name,"args.yaml"), "r") as fargs:
+        args = next(yaml.safe_load_all(fargs))
+        
     rtg_scale = 1000      # normalize returns to go
     state_dim = 48
     act_dim = 12
@@ -214,7 +235,7 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
     dropout_p = 0.1          # dropout probability
 
     print("loading pre_record stds,means...")
-    model_path = os.path.join(parentdir, "EAT_runs/EATBody_EBODY2_03/")
+    model_path = os.path.join(parentdir, model_name)
     # model_path = os.path.join(parentdir, "EAT_runs/EAT_FLAWEDPPO_00/")
     state_mean, state_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
     # state_mean, state_std, body_mean, body_std = np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy"), np.load(model_path+"model.body_mean.npy"), np.load(model_path+"model.body_std.npy")
@@ -230,7 +251,7 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.5]
+    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]
     # env_cfg.sim_device = args["device"]
     
     env, _ = task_registry.make_env(name = env_args.task, args = env_args, env_cfg = env_cfg)
@@ -312,9 +333,9 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
             total_rewards = np.zeros(eval_batch_size)
             dones = np.zeros(eval_batch_size)
             
-            faulty_taget = faulty_tag
+            faulty_target = faulty_tag
             body_target = body_oringe.copy()
-            body_target[faulty_taget] = flawed_rate
+            # body_target[faulty_taget] = flawed_rate
             body_target = torch.tensor(body_target, dtype=torch.float32, device=device)
             # faulty_taget = -1
             bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32).clone()
@@ -339,15 +360,16 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
                                             states[:,t-context_len+1:t+1],
                                             actions[:,t-context_len+1:t+1],
                                             body=bodies[:,t-context_len+1:t+1])
+                    # faulty_taget = flawed_rate
                     # if t < 300:
                     #     bodies[:, t] = torch.ones_like(body_preds[:, -1], dtype=torch.float64)
                     # else:
-                    bodies[:, t] = body_preds[:, -1].detach()   #加这一句可以让学出来的body返回回去
-                    faulty_taget = faulty_tag
+                    # bodies[:, t] = body_preds[:, -1].detach().clamp(0.0,1.0)   #加这一句可以让学出来的body返回回去
+                    # faulty_taget = faulty_tag
                     # if t % 900 == 0 and t > 0:
                     #     pdb.set_trace()
                     # print(torch.argmin(bodies[:,t,:], dim=-1))
-                    _, act_preds, body_preds = model.forward(timesteps[:,t-context_len+1:t+1],
+                    _, act_preds, _ = model.forward(timesteps[:,t-context_len+1:t+1],
                                             states[:,t-context_len+1:t+1],
                                             actions[:,t-context_len+1:t+1],
                                             body=bodies[:,t-context_len+1:t+1])
@@ -357,7 +379,7 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
                 # act = disable_leg(act.detach(), target="none", index=3)
                 # running_state, running_reward, done, _ = env.step(act.cpu())
                 
-                running_state, _, running_reward, done, infos = env.step(act, flawed_joint = [faulty_taget], flawed_rate = flawed_rate) #if t > max_test_ep_len/8 else env.step(act, [-1])
+                running_state, _, running_reward, done, infos = env.step(act, flawed_joint = [faulty_target], flawed_rate = flawed_rate) #if t > max_test_ep_len/8 else env.step(act, [-1])
                 
                 if infos["episode"]:
                     num_episodes = torch.sum(env.reset_buf).item()
@@ -390,10 +412,10 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
 
 
 if __name__ == "__main__":
-    with open("./Integration_EAT/scripts/args.yaml", "r") as fargs:
-        args = yaml.safe_load(fargs)
     
     RECORD_FRAMES = False
-    MOVE_CAMERA = False
-    # play(args, 0, 0)
-    play_withbody(args, 2, 0.4)
+    MOVE_CAMERA = True
+    model = "EAT_runs/EAT_given_body_IPPO_02/"
+    play(model_name = model, faulty_tag = 11, flawed_rate = 0, MIN_EVAL_ENVs=1)
+    # model = "EAT_runs/EAT_FLAWEDPPO_00/"
+    # play_withbody(args, 11, 0)

@@ -1,3 +1,6 @@
+"""
+训练时进行两步预测,上一步的body显式参与下一步预测
+"""
 import argparse
 from argparse import Namespace
 import os
@@ -28,7 +31,6 @@ import yaml
 
 
 def train(args):
-
     state_dim = args["state_dim"]
     act_dim = args["act_dim"]
     body_dim = args["body_dim"]
@@ -218,10 +220,8 @@ def train(args):
         model.train()
 
         for timesteps, states, actions, teacher_actions, body, traj_mask in iter(traj_data_loader):
-
             timesteps = timesteps.to(device)    # B x T
             states = states.to(device)          # B x T x state_dim
-
             actions = actions.to(device)        # B x T x act_dim
             body = body.to(device)  # B x T x body_dim
             body_target = torch.clone(body).detach().to(device)
@@ -236,38 +236,7 @@ def train(args):
                                                             body = body_1
                                                             # body=body
                                                         )
-            
-            # mesure body loss
-            # 预测的body是当前body
-            body_preds = body_preds.clamp(0.0, 1.0)
-            # only consider non padded elements
-            target_joints = torch.argmin(body, dim=-1).unsqueeze(2)
-
-            #仅保留主要loss
-            body_main_loss = F.mse_loss(
-                body_preds.gather(
-                    dim=2,index = target_joints), 
-                body_target.gather(
-                    dim=2,index = target_joints), 
-                reduction='mean')
-            
-            #adversary loss
-            _, idx1 = torch.sort(torch.abs(body_preds.detach()-body_target), dim=-1, descending=False)
-            p = (idx1!=target_joints.expand(-1,-1,12)).nonzero()[:,-1].reshape((512,20,11)) #非最小元素的所有坐标
-            p = p[:,:,:2]
-            #按理说应该要body_adversary尽可能远离body_target
-            # 但由于目前的setting主要是从1下降到任意坏损值，所以偷懒写成body_adversary离1的距离越近越好
-            body_adversary_loss = torch.exp(
-                (body_preds.gather(dim=2,index = p) 
-                - body_target.gather(dim=2,index = target_joints).expand(-1,-1,2)).mean()
-            )
-            
-            body_preds = body_preds.view(-1, body_dim)[traj_mask.view(-1,) > 0]
-            body_target = body_target.view(-1, body_dim)[traj_mask.view(-1,) > 0]
-            body_loss = body_main_loss + body_adversary_loss 
-            + F.mse_loss(body_preds, body_target, reduction='mean')
-            
-            #measure action loss
+            body[:,-1] = body_preds[:,-1]
             _, action_preds, _ = model.forward(
                                                             timesteps=timesteps,
                                                             states=states,
@@ -275,42 +244,78 @@ def train(args):
                                                             # body = body_1
                                                             body=body
                                                         )
-            action_preds = action_preds.view(-1, act_dim)[traj_mask.view(-1,) > 0]
-            action_target = action_target.view(-1, act_dim)[traj_mask.view(-1,) > 0]
+            # mesure body loss
+            # 预测的body是当前body
+            # body_preds = body_preds.clamp(0.0, 1.0)
+            # body_preds = torch.tanh(body_preds)
+            body = body[:, int(context_len/2):]
+            body_preds = body_preds[:, int(context_len/2):]
+            body_target = body_target[:, int(context_len/2):]
+            # only consider non padded elements
+            target_joints = torch.argmin(body, dim=-1).unsqueeze(2)
+            #仅保留主要body loss
+            body_main_loss = F.mse_loss(
+                body_preds.gather(
+                    dim=2,index = target_joints), 
+                body_target.gather(
+                    dim=2,index = target_joints), 
+                reduction='mean')
+            #adversary loss
+            _, idx1 = torch.sort(body_preds.detach(), dim=-1, descending=False)
+            p = (idx1!=target_joints.expand(-1,-1,12)).nonzero()[:,-1].reshape((512,10,11)) #非最小元素的所有坐标的坐标
+            p = p[:,:2]#注意这里是坐标的坐标，下一句再次解扰
+            p = idx1.gather(dim=-1, index=p)
+            #按理说应该要body_adversary尽可能远离body_target
+            # 但由于目前的setting主要是从1下降到任意坏损值，所以偷懒写成body_adversary离1的距离越近越好
+            body_adversary_loss = torch.exp(
+                -8 * (
+                    body_preds.gather(dim=2,index = p) 
+                    - body_target.gather(dim=2,index = target_joints).expand(-1,-1,2)
+                ).mean() - 1.0  #e^(-8x-1)
+            )#当adv小于bodymain时给予大惩罚，当adv大于bodymain时给予较小惩罚，当adv大于bodymain超过0.5时惩罚变化不大
+            # body_adversary_loss = 0.1 * F.mse_loss(
+            #     body_preds.gather(dim=2,index = p),
+            #     body_target.gather(dim=2,index = target_joints).expand(-1,-1,2),
+            #     reduction='mean'
+            # )   #直觉上不希望这种简单粗暴的loss占比重太大，否则采纳一次错误预测以后很难回来
+            body_preds = body_preds.view(-1, body_dim)[traj_mask.view(-1,) > 0]
+            body_target = body_target.view(-1, body_dim)[traj_mask.view(-1,) > 0]
+            body_loss = body_main_loss + body_adversary_loss
+            + F.mse_loss(body_preds[:,-1], body_target[:,-1], reduction='mean')
+            log_body_losses.append(body_loss.detach().cpu().item())
+            
+            #compute action loss
+            action_preds = action_preds[:,-1].view(-1, act_dim)[traj_mask.view(-1,) > 0]
+            action_target = action_target[:,-1].view(-1, act_dim)[traj_mask.view(-1,) > 0]
             action_loss = F.mse_loss(action_preds, action_target, reduction='mean')
         
             total_loss = (args["action_loss_w"] * action_loss 
                           + args["body_loss_w"] * body_loss).to(torch.float)
-
+            log_action_losses.append(action_loss.detach().cpu().item())
             optimizer.zero_grad()
+            # action_loss.backward()
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
             optimizer.step()
             scheduler.step()
-
-            log_body_losses.append(body_loss.detach().cpu().item())
-            log_action_losses.append(action_loss.detach().cpu().item())
-
+            
             if not args["wandboff"]:
                 wandb.log({"Loss_body": body_loss.detach().cpu().item(), 
                            "Loss_body_main": body_main_loss.detach().cpu().item(),
                            "Loss_body_adv": body_adversary_loss.detach().cpu().item(),
                            "Loss_action": action_loss.detach().cpu().item(),
                            })
-
             total_updates += num_updates_per_iter
-
             inner_bar.update(1)
         inner_bar.reset()
         #end one epoch ^
         #=====================================================================================================
-
         if epoch % max(int(5000/num_updates_per_iter), 1) == 0:
             # evaluate action accuracy
             results = evaluate_on_env_batch_body(model = model, device=device, context_len=context_len, env=env, 
                                                 body_target=eval_body_vec, num_eval_ep = num_eval_ep, 
                                                 max_test_ep_len = max_eval_ep_len, state_mean = state_mean, 
-                                                state_std = state_std, body_pre = True)
+                                                state_std = state_std, body_pre = True, upper_bound=0.5)
 
         
             eval_avg_reward = results['eval/avg_reward']
@@ -387,7 +392,6 @@ def train(args):
 #     return
 
 if __name__ == "__main__":
-
     with open("./Integration_EAT/scripts/args.yaml", "r") as fargs:
         args = yaml.safe_load(fargs)
     train(args)

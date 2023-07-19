@@ -6,6 +6,8 @@
 /models/
 #忽略采集的数据集
 /data/
+/data_2/
+data_2
 #忽略EAT采集的数据集
 /EAT_runs/
 /Tert_runs/
@@ -19,10 +21,13 @@
 /real_robot_eat/
 
 #数据分布图
-/tools/traj_analyse/
+# /tools/traj_analyse/
 
 #body预测准确度
-/tools/bodypre_analyse/
+# /tools/bodypre_analyse/
 
 #EAT_预测准确度
-/tools/EAT_test/
+# /tools/EAT_test/
+
+#tools里所有东西都是自己做测试用的
+scripts/tools/

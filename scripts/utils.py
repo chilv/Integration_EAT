@@ -158,7 +158,7 @@ def flaw_generation(
 
 
 def step_body(
-    bodys, joint, rate=0.004, threshold=0
+    bodys, joint, rate=0.004, threshold=0, upper_bound = 1
 ):  # each joint has a flaw rate to be partial of itself.
     """
     joint: (num_envs, num) OR a single int, 每个环境对应的1个坏损关节
@@ -326,9 +326,11 @@ def evaluate_on_env_batch_body(
     body_mean=None,
     body_std=None,
     render=False,
+    upper_bound = 0, 
     prompt_policy=None,
     body_pre:bool = False,
-    body_gt:bool = False
+    body_gt:bool = False,
+    body_pre_acu = False
 ):
     """
     用来测试EAT及其变种的模型表现
@@ -349,6 +351,7 @@ def evaluate_on_env_batch_body(
     prompt_policy：暂时无用
     body_pre=False：是否将自身预测的body作为下一帧的body输入
     body_gt：是否将真实body作为下一帧预测的输入（body_pre为true时为body预测的输入，否则为action预测的输入）
+    body_pre_acu: 是否返还bodypre准确度
     """
 
     eval_batch_size = num_eval_ep  # required for forward pass
@@ -390,7 +393,7 @@ def evaluate_on_env_batch_body(
             device=device,
         )  # Here we assume that obs = state !!
         running_body, joints = flaw_generation(
-            eval_batch_size, bodydim=body_dim, fixed_joint=[-1], device=device
+            eval_batch_size, bodydim=body_dim, fixed_joint=[-1], device=device, upper_bound=upper_bound
         )
         running_body = running_body.to(device)
         bodys = running_body.expand(max_test_ep_len, eval_batch_size, body_dim).type(
@@ -401,7 +404,7 @@ def evaluate_on_env_batch_body(
 
         total_rewards = np.zeros(eval_batch_size)
         dones = np.zeros(eval_batch_size)
-
+        total_pre = 0
         for t in range(max_test_ep_len):
             total_timesteps += 1
             states[:, t, :] = running_state
@@ -429,15 +432,34 @@ def evaluate_on_env_batch_body(
                         actions[:, t - context_len + 1 : t + 1],
                         body=bodys[:, t - context_len + 1 : t + 1],
                     )
-                    bodys[:, t] = body_preds[:, -1].detach()
-                    
-                _, act_preds, _ = model.forward(
+                    bodys[:, t] = body_preds[:, -1].detach().clamp(0.0, 1.0)    #! 注意，这里为了增加actionpre的准确率所以进行了clamp，正常这一步也许再model内进行比较合理？
+                    # body_preds = torch.nn.functional.softmax(body_preds,dim=-1)
+                    # pre_target = torch.argmin(body_preds[:,-1], dim=-1).unsqueeze(1)    #! 注意，这里为了增加actionpre的准确率所以进行了clamp，正常这一步也许再model内进行比较合理？
+                    # bodys[:, t] = torch.ones_like(body_preds[:,-1], dtype = torch.float32).scatter(
+                    #     dim = -1,
+                    #     index = pre_target,
+                    #     src = torch.zeros_like(pre_target, dtype = torch.float32)
+                    # )
+                    # if((
+                    #     torch.argmin(body_preds[:,10:], dim=-1).mode(dim = -1)[0] 
+                    #      - torch.argmin(torch.nn.functional.softmax(running_body, dim=-1), dim=-1)
+                    #      ).nonzero().shape[0] 
+                    #     < running_body.shape[0]/10):    #预测与实际不符的情况小鱼十分之一时判据通过
+                    #     total_pre += 1
+                _, act_preds, body_preds = model.forward(
                     timesteps[:, t - context_len + 1 : t + 1],
                     states[:, t - context_len + 1 : t + 1],
                     actions[:, t - context_len + 1 : t + 1],
                     body=bodys[:, t - context_len + 1 : t + 1],
                 )
                 act = act_preds[:, -1].detach()
+                body_preds = body_preds
+                if((
+                    torch.argmin(body_preds[:,10:], dim=-1).mode(dim = -1)[0]
+                        - torch.argmin(torch.nn.functional.softmax(running_body, dim=-1), dim=-1)
+                        ).nonzero().shape[0] 
+                    < running_body.shape[0]/10):    #预测与实际不符的情况小鱼十分之一时判据通过
+                        total_pre += 1
                 
             running_state, _, running_reward, done, infos = env.step(
                 act.cpu(), running_body
@@ -456,11 +478,142 @@ def evaluate_on_env_batch_body(
             )
             dones += ~done.detach().cpu().numpy()
 
-            running_body = step_body(running_body, joints, rate=0.004, threshold=0.4)
+            running_body = step_body(running_body, joints, rate=0.004, upper_bound=upper_bound)
 
     results["eval/avg_reward"] = np.mean(total_rewards)
     results["eval/avg_ep_len"] = np.mean(dones)
+    if body_pre_acu:
+        results["eval/total_pre_rate"] = total_pre / (max_test_ep_len-20)
+    return results
 
+def evaluate_torques(
+    model,
+    run_model,
+    device,
+    context_len,
+    env,
+    num_eval_ep=10,
+    max_test_ep_len=1000,
+    state_mean=None,
+    state_std=None,
+):
+    """
+    这个函数写来纯纯粹粹为了测试torques预测准不准
+    ------------------
+    model：待测试模型
+    test_model: 纯粹用来让机器狗走起来的
+    device：测试硬件号
+    context_len：模型上下文长度
+    env：测试环境
+    body_target：目前除了用来提供bodydim外暂时无用
+    rtg_scale：无用 待删除
+    num_eval_ep=10：测试所用环境数量
+    max_test_ep_len=1000：每个环境中测试长度
+    state_mean=None：如其名
+    state_std=None：如其名
+    """
+    eval_batch_size = num_eval_ep  # required for forward pass
+
+    results = {}
+    total_reward = 0
+    total_timesteps = 0
+    state_dim = env.cfg.env.num_observations
+    act_dim = env.cfg.env.num_actions
+    body_dim = 12
+
+    assert state_mean is not None
+    if not torch.is_tensor(state_mean):
+        state_mean = torch.from_numpy(state_mean).to(device)
+    else:
+        state_mean = state_mean.to(device)
+
+    assert state_std is not None
+    if not torch.is_tensor(state_std):
+        state_std = torch.from_numpy(state_std).to(device)
+    else:
+        state_std = state_std.to(device)
+
+    timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
+    timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
+
+    model.eval()
+    run_model.eval()
+    # logger = Logger(env.dt)
+    
+
+    with torch.no_grad():
+        actions = torch.zeros(
+            (eval_batch_size, max_test_ep_len, act_dim),
+            dtype=torch.float32,
+            device=device,
+        )
+        states = torch.zeros(
+            (eval_batch_size, max_test_ep_len, state_dim),
+            dtype=torch.float32,
+            device=device,
+        )  # Here we assume that obs = state !!
+
+        bodys = torch.ones(
+            (eval_batch_size, context_len, body_dim),
+            dtype=torch.float32,
+            device=device,
+        )
+        
+        running_state, _ = env.reset()
+
+        total_rewards = np.zeros(eval_batch_size)
+        dones = np.zeros(eval_batch_size)
+        total_pre = 0
+        
+        for t in range(max_test_ep_len):
+            total_timesteps += 1
+            states[:, t, :] = running_state
+            states[:, t, :] = (states[:, t, :] - state_mean) / state_std
+
+            if t < context_len:
+                _, act_preds, _ = run_model.forward(
+                    timesteps[:, :context_len],
+                    states[:, :context_len],
+                    actions[:, :context_len],
+                    body=bodys,
+                )
+                act = act_preds[:, t].detach()
+
+            else:
+                _, act_preds, _ = run_model.forward(
+                    timesteps[:, t - context_len + 1 : t + 1],
+                    states[:, t - context_len + 1 : t + 1],
+                    actions[:, t - context_len + 1 : t + 1],
+                    body=bodys,
+                )
+                act = act_preds[:, -1].detach()
+                
+            running_state, _, running_reward, done, infos = env.step(
+                act.cpu(), bodys[:,-1]
+            )
+
+            actions[:, t] = act
+            start_t = 0 if t < context_len else t -context_len + 1 
+            end_t = context_len if t < context_len else t + 1
+            torqs_preds = model.forward(
+                                            timesteps[:, start_t : end_t],
+                                            states[:, start_t : end_t],
+                                            actions[:, start_t : end_t],
+                                            # body=body
+                                        )
+            total_bias = torqs_preds[:,-1].cpu().detach().numpy() - env.torques.cpu().detach().numpy()
+        
+            total_reward += np.sum(total_bias)
+            total_rewards += (
+                running_reward.detach().cpu().numpy()
+                * (done == 0).detach().cpu().numpy()
+            )
+            dones += ~done.detach().cpu().numpy()
+            
+    results["eval/avg_reward"] = 1/np.mean(total_rewards)
+    results["eval/avg_ep_len"] = np.mean(dones)
+    # if body_pre_acu:
+    #     results["eval/total_pre_rate"] = total_pre / (max_test_ep_len-20)
     return results
 
 def parallel_load(path):
@@ -846,7 +999,7 @@ def get_dataset_config(dataset):
         eval_env = "none"
 
     if dataset == "IPPOtest":
-        datafile = "Trajectory_IPPO_3"
+        datafile = "Trajectory_IPPO"
         i_magic_list = [f"PPO_I_{x}" for x in range(2)]
         eval_body_vec = [1 for _ in range(12)]
     if dataset == "IPPO":
@@ -893,6 +1046,16 @@ def get_dataset_config(dataset):
         datafile = "Trajectory_Ebody3"
         i_magic_list = [f"EBody_v1_{x}" for x in range(12)]
         eval_body_vec = [1 for _ in range(12)]
+    if dataset == "EBody4":
+        datafile = "Trajectory_Ebody4"
+        i_magic_list = [f"EBody_v1_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "AMP":
+        datafile = "Trajectory_AMP"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+        
+        
     if dataset == "faulty":
         datafile = "P20F10000-vel0.5-v0"
         i_magic_list = [
@@ -910,50 +1073,6 @@ def get_dataset_config(dataset):
         ]
         eval_body_vec = [1 for _ in range(12)]
         eval_env = "none"
-
-    if dataset == "continue_faulty":  # 包含连续torques表现不好的情况
-        datafile = "F10000-v0"
-        i_magic_list = ["none-1"]
-        for name in [
-            "LFH",
-            "LFK",
-            "LFA",
-            "RFH",
-            "RFK",
-            "RFA",
-            "LBH",
-            "LBK",
-            "LBA",
-            "RBH",
-            "RBK",
-            "RBA",
-        ]:
-            for rate in [0, 0.25, 0.5, 0.75]:
-                i_magic_list.append(f"{name}-{rate}")
-        eval_body_vec = [1 for _ in range(12)]
-
-    if dataset == "continue4000_faulty":  # 包含连续torques表现不好的情况但数据量更少（内存放不下
-        datafile = "F4000-v0"
-        i_magic_list = ["none-1"]
-        for name in [
-            "LFH",
-            "LFK",
-            "LFA",
-            "RFH",
-            "RFK",
-            "RFA",
-            "LBH",
-            "LBK",
-            "LBA",
-            "RBH",
-            "RBK",
-            "RBA",
-        ]:
-            # for rate in [0, 0.25]:
-            for rate in [0, 0.25, 0.5, 0.75]:
-                i_magic_list.append(f"{name}-00")
-        eval_body_vec = [1 for _ in range(12)]
-
     if dataset == "continue1000_faulty":  # 包含连续torques表现不好的情况但数据量更少（不需要切分可以直接学
         datafile = "F1000-v0"
         i_magic_list = ["none-1"]

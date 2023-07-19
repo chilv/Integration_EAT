@@ -62,6 +62,7 @@ def train(args):
             print(p, " doesn't exist~")
 
     env_args = get_args()
+    env_args.sim_device = "cuda:0"
     env_cfg, train_cfg = task_registry.get_cfgs(name =env_args.task)
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, args.num_eval_ep)
     env_cfg.terrain.curriculum = False
@@ -310,20 +311,20 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dataset', type=str, default='IPPO')
+    parser.add_argument('--dataset', type=str, default='IPPO9')
 
     parser.add_argument('--max_eval_ep_len', type=int, default=1000)
     parser.add_argument('--num_eval_ep', type=int, default=1024)      #事实上此参数决定了测试环境数量 原值10
     parser.add_argument('--noise', type=int, help="noisy environemnt for evaluation", default=0)
 
-    parser.add_argument('--dataset_dir', type=str, default='Integration_EAT/data/')
+    parser.add_argument('--dataset_dir', type=str, default='Integration_EAT/data_2/')
     parser.add_argument('--log_dir', type=str, default='Integration_EAT/EAT_runs/')
     parser.add_argument('--cut', type=int, default=0)
 
-    parser.add_argument('--context_len', type=int, default=20)  #50 试一下
-    parser.add_argument('--n_blocks', type=int, default=6)
+    parser.add_argument('--context_len', type=int, default=30)  #50 试一下
+    parser.add_argument('--n_blocks', type=int, default=3)
     parser.add_argument('--embed_dim', type=int, default=128)   #! 试图修改transformer规模
-    parser.add_argument('--n_heads', type=int, default=1)
+    parser.add_argument('--n_heads', type=int, default=2)
     parser.add_argument('--dropout_p', type=float, default=0.1)
 
     parser.add_argument('--batch_size', type=int, default=512)
@@ -338,7 +339,7 @@ if __name__ == "__main__":
     parser.add_argument('--wandboff', default=False, action='store_true', help="Disable wandb")
 
     # parser.add_argument('--device', type=str, default='cuda:0')
-    parser.add_argument('--note', type=str, default='')
+    parser.add_argument('--note', type=str, default='更大的模型fordistill')
     parser.add_argument('--seed', type=int, default=66)
 
     # args = parser.parse_args()

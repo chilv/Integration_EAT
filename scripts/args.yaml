@@ -1,22 +1,21 @@
 # 试图将所有args统一到yaml格式
 # 
 
-# alg: 
 batch_size: 512
 context_len: 20
+n_blocks: 3
+n_heads: 2
 cut: 0
-dataset: EBody3 #EBody #IPPOtest #IPPO8
+dataset: AMP #EBody4 #IPPOtest #IPPO8
 dataset_dir: Integration_EAT/data_2/
 device: cuda:1
 dropout_p: 0.1
 embed_dim: 128
 log_dir: Integration_EAT/EAT_runs/
-lr: 0.00001  #默认1e-4
+lr: 1.0e-5  #默认1.0e-4
 max_eval_ep_len: 1000
-model_dir: /NAS2020/Workspaces/DRLGroup/wuxinyuan/leggedrobots/Integration_EAT/EAT_runs/EAT_given_body_IPPO_02
-n_blocks: 6
+model_dir: 
 n_epochs_ref: 1
-n_heads: 1
 nobody: false
 noise: 0
 num_eval_ep: 1024
@@ -24,7 +23,7 @@ num_updates_per_iter: 100
 seed: 66
 warmup_steps: 10000
 wt_decay: 0.005
-algorithm_name: EATBody
+algorithm_name: AMP_position_softmax
 action_loss_w: 1.0
 body_loss_w: 1.0
 
@@ -65,5 +64,5 @@ body_dim: 12
 run_name: 
 checkpoint: null
 experiment_name: null
-note: this experiment aims to try only bodypre3's finetune with 1e-5 lr; 更改了train中action的两阶段训练，与body的采集中的action，意图更贴近真实action与body的场景
+note: 利用新采集的AMP数据与更改之后的position计算方法顺便验证softmax的body会不会表现得更好
 wandboff: false
