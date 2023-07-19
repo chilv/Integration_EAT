@@ -68,7 +68,7 @@ class RolloutStorage:
         self.rewards = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
         self.actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
         self.dones = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device).byte()
-        self.embodys = torch.zeros(num_transitions_per_env, num_envs, body_dim, device=self.device) if self.body_dim else None
+        self.embodies = torch.zeros(num_transitions_per_env, num_envs, body_dim, device=self.device) if self.body_dim else None
 
 
         # For PPO
@@ -102,7 +102,7 @@ class RolloutStorage:
         self.sigma[self.step].copy_(transition.action_sigma)
         self._save_hidden_states(transition.hidden_states)
         if self.body_dim:
-            self.embodys[self.step].copy_(transition.embody)
+            self.embodies[self.step].copy_(transition.embody)
         self.step += 1
 
     def _save_hidden_states(self, hidden_states):
@@ -168,7 +168,7 @@ class RolloutStorage:
         old_mu = self.mu.flatten(0, 1)
         old_sigma = self.sigma.flatten(0, 1)
         if self.body_dim:
-            embodys = self.embodys.flatten(0,1)
+            embodies = self.embodies.flatten(0,1)
 
         for epoch in range(num_epochs):
             for i in range(num_mini_batches):
@@ -187,7 +187,7 @@ class RolloutStorage:
                 old_mu_batch = old_mu[batch_idx]
                 old_sigma_batch = old_sigma[batch_idx]
                 if self.body_dim:
-                    embody_batch = embodys[batch_idx]
+                    embody_batch = embodies[batch_idx]
                     yield embody_batch, obs_batch, critic_observations_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, \
                        old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (None, None), None
                 else:

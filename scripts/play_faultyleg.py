@@ -78,8 +78,8 @@ def play(args, flawed_joint = -1, flawed_rate = 1):
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]# 更改速度设置以防命令采样到0的情况    
-
+    env_cfg.commands.ranges.lin_vel_x = [0.0, 0.7]# 更改速度设置以防命令采样到0的情况    
+    env_cfg.commands.ranges.ang_vel_yaw = [-1, 1]
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     obs = env.get_observations()
@@ -112,12 +112,12 @@ def play(args, flawed_joint = -1, flawed_rate = 1):
     lengthbuffer = deque(maxlen=100)
     bodydim = 12
     
-    bodys = torch.ones(env_cfg.env.num_envs, bodydim)
-    bodys[:, flawed_joint] = flawed_rate     #后续泛化
-    bodys = bodys.to(env.device)
+    bodies = torch.ones(env_cfg.env.num_envs, bodydim)
+    bodies[:, flawed_joint] = flawed_rate     #后续泛化
+    bodies = bodies.to(env.device)
     
     for i in range(2*int(env.max_episode_length)):
-        actions = policy(obs.detach(),bodys)
+        actions = policy(obs.detach(),bodies)
         # actions = disable_leg(actions, target="none", index=2)#let one joint or leg be disabled
         obs, _, rews, dones, infos = env.step(actions.detach(), flawed_joint = [flawed_joint], flawed_rate = flawed_rate)
         

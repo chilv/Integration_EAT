@@ -54,6 +54,7 @@ def test_ppo(args, env, train_cfg, faulty_tag = -1, flawed_rate = 1):
     #     train_cfg.runner.load_run = f""
     # else:
     #     train_cfg.runner.load_run = f"{faulty_tag}"
+    train_cfg.runner.experiment = "Models"
     train_cfg.runner.load_run = "PPO_Models"
     train_cfg.runner.checkpoint = faulty_tag
     log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
@@ -85,7 +86,7 @@ def test_ppo(args, env, train_cfg, faulty_tag = -1, flawed_rate = 1):
 
     for i in range(int(env.max_episode_length) + 1):
         actions = policy(obs.detach(), body)
-        obs, _, rews, dones, infos = env.step(actions.detach(), flawed_joint = [faulty_tag], flawed_rate = flawed_rate)
+        obs, _, rews, dones, infos = env.step(actions.detach(), body)
         
         cur_reward_sum += rews
         new_ids = (dones > 0).nonzero(as_tuple=False)
@@ -106,13 +107,15 @@ def test_ppo(args, env, train_cfg, faulty_tag = -1, flawed_rate = 1):
                 print(f"average reward is :{statistics.mean(rewbuffer)}\naverage length is :{statistics.mean(lengthbuffer)}\n")
     return statistics.mean(rewbuffer), statistics.mean(lengthbuffer)
             
-def test_EAT(args, env, EAT_model, faulty_tag = -1, flawed_rate = 1):
+def test_EAT(args, env, EAT_model, faulty_tag = -1, flawed_rate = 1, pred_body = True):
     # loading EAT model
     eval_batch_size = ENV_NUMS        # 测试环境数
     max_test_ep_len = 1000    	#iters
 
     body_dim = args["body_dim"]
     body_target = [1 for _ in range(body_dim)]
+    if not pred_body:
+        body_target [faulty_tag] = flawed_rate
     # if (faulty_tag != -1):
         # body_target[faulty_tag] = flawed_rate
     
@@ -127,8 +130,8 @@ def test_EAT(args, env, EAT_model, faulty_tag = -1, flawed_rate = 1):
     running_state = env.reset()[0]
     running_reward = torch.zeros((eval_batch_size, ), dtype=torch.float32, device=device)
     
-    timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
-    timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
+    # timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
+    # timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
     actions = torch.zeros((eval_batch_size, max_test_ep_len, act_dim),
                                 dtype=torch.float32, device=device)
     states = torch.zeros((eval_batch_size, max_test_ep_len, state_dim),
@@ -146,20 +149,20 @@ def test_EAT(args, env, EAT_model, faulty_tag = -1, flawed_rate = 1):
             states[:,t,:] = (states[:,t,:] - state_mean) / state_std
 
             if t < context_len:
-                _, act_preds, _ = EAT_model.forward(timesteps[:,:context_len],
+                _, act_preds, _ = EAT_model.forward(
                                             states[:,:context_len],
                                             actions[:,:context_len],
-                                            body=bodies[:,:context_len])
+                                            bodies=bodies[:,:context_len])
                 act = act_preds[:, t].detach()
             else:
-                _, act_preds, _ = EAT_model.forward(timesteps[:,t-context_len+1:t+1],
+                _, act_preds, _ = EAT_model.forward(
                                         states[:,t-context_len+1:t+1],
                                         actions[:,t-context_len+1:t+1],
-                                        body=bodies[:,t-context_len+1:t+1])
+                                        bodies=bodies[:,t-context_len+1:t+1])
                 act = act_preds[:, -1].detach()
             
             # body, _ = flaw_generation(ENV_NUMS, fixed_joint = [faulty_tag], flawed_rate = flawed_rate, device = )
-            running_state, _, running_reward, done, infos = env.step(act, flawed_joint = [faulty_tag], flawed_rate = flawed_rate)
+            running_state, _, running_reward, done, infos = env.step(act, body_target)
             # if t < max_test_ep_len/8:
                 # running_state, _, running_reward, done, infos = env.step(act, [-1])
         
@@ -187,7 +190,7 @@ if __name__ == '__main__':
     
     env_args = get_args()
     env_args.sim_device = args["device"]
-    
+    env_args.task = args["task"]
     env_cfg, train_cfg = task_registry.get_cfgs(name=env_args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, ENV_NUMS)
@@ -197,77 +200,109 @@ if __name__ == '__main__':
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]# 更改速度设置以防命令采样到0的情况    
+    # env_cfg.commands.ranges.lin_vel_x = [0.0, 0.7]# 更改速度设置以防命令采样到0的情况    
+    env_cfg.domain_rand.randomize_action_latency = False
+    env_cfg.domain_rand.push_robots = False
+    env_cfg.domain_rand.randomize_gains = False
+    env_cfg.domain_rand.randomize_base_mass = False
+    env_cfg.domain_rand.randomize_link_mass = False
+    env_cfg.domain_rand.randomize_com_pos = False
+    env_cfg.domain_rand.randomize_motor_strength = False
 
+    # # Faster test
+    # env_cfg.commands.ranges.lin_vel_x = [-0.7,0.7]
+    # env_cfg.commands.ranges.lin_vel_y = [-0.5, 0.5]
+    # env_cfg.commands.ranges.ang_vel_yaw = [-1,1]
     # prepare environment
     env, _ = task_registry.make_env(name=env_args.task, args=env_args, env_cfg=env_cfg)
     
     #测试ppo======================================================================
-    ppo_row_names = [0, 0.25, 0.5, 0.75]
-    ppo_row_names = np.arange(0,1,0.1)
-    out_table = np.zeros((12,10))
-    for i in range(12):#12条断腿情况
-        # for j in range (0, 0.8, 0.1):
-        t = 0
-        for j in ppo_row_names:            
-            out_table[i, t], _ = test_ppo(env_args, env, train_cfg, i, j)
-            t += 1
+    # ppo_row_names = [0, 0.25, 0.5, 0.75]
+    # save_path = os.path.join(os.path.dirname(currentdir), "eval")
+    # file_name = "PPO_Models.csv"
+    # if not os.path.exists(save_path):
+    #     os.mkdir(save_path)
+
+    # ppo_row_names = np.arange(0,1,0.1)
+    # out_table = np.zeros((12,10))
+    # for i in range(12):#12条断腿情况
+    #     # for j in range (0, 0.8, 0.1):
+    #     t = 0
+    #     for j in ppo_row_names:            
+    #         out_table[i, t], _ = test_ppo(env_args, env, train_cfg, i, j)
+    #         t += 1
+    #         ppo_df = pd.DataFrame(out_table)
+    #         ppo_df.index = codename_list
+    #         ppo_df.columns = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    #         ppo_res = ppo_df.to_csv(os.path.join(save_path, file_name), mode='w')
+
     # out_table[:,-1],_ = test_ppo(args, env, train_cfg, -1, 1) #测完好情况
-    ppo_df = pd.DataFrame(out_table)
-    ppo_df.index = codename_list
-    # ppo_df.columns = [0,0.25,0.5, 0.75, 1.0]
-    ppo_df.columns = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-    ppo_res = ppo_df.to_csv(os.path.join(os.path.dirname(parentdir), "scripts/tools/EAT_test/Ippo_body.csv"), mode='w')
+    # ppo_df = pd.DataFrame(out_table)
+    # ppo_df.index = codename_list
+    # # ppo_df.columns = [0,0.25,0.5, 0.75, 1.0]
+    # ppo_df.columns = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    # ppo_res = ppo_df.to_csv(os.path.join(os.path.dirname(parentdir), "scripts/Ippo_body.csv"), mode='w')
     #测试ppo结束===================================================================
     
     
     #测试EAT======================================================================
     #loading EAT model
     # loading pre_record stds,means...
-    # model_path = os.path.join(os.path.dirname(parentdir), "EAT_runs/EAT_given_body_IPPO_02/")
+    model_name = "EAT_Given_body_AMP_Teacher_Position_Encoding_AMPPPO_04"
+    run_name = "EAT_runs_AMP"
+    model_path = os.path.join(os.path.dirname(parentdir), run_name, model_name)
+    task_args = {}
+    with open(os.path.join(model_path, "args.yaml"), "r") as f:
+        task_args_Loader = yaml.load_all(f, Loader = yaml.FullLoader)
+        for t in task_args_Loader:
+            task_args.update(t)
+    args['state_mean'], args['state_std']= np.load(os.path.join(model_path, "model.state_mean.npy")), np.load(os.path.join(model_path, "model.state_std.npy"))
+    body_mean, body_std = None, None
     
-    # args['state_mean'], args['state_std']= np.load(model_path+"model.state_mean.npy"), np.load(model_path+"model.state_std.npy")
-    # body_mean, body_std = None, None
-    
-    # state_dim = args["state_dim"]
-    # act_dim = args["act_dim"]
-    # body_dim = args	["body_dim"]
+    state_dim = args["state_dim"]
+    act_dim = args["act_dim"]
+    body_dim = args	["body_dim"]
 
-    # context_len = 20      # K in decision transformer
-    # n_blocks = 6            # num of transformer blocks
-    # embed_dim = 128          # embedding (hidden) dim of transformer 
-    # n_heads = 1              # num of transformer heads
-    # dropout_p = 0.1          # dropout probability
-    # device = torch.device(env_args.sim_device)
-    # EAT_model = LeggedTransformerBody(
-    #         body_dim=body_dim,
-    #         state_dim=state_dim,
-    #         act_dim=act_dim,
-    #         n_blocks=n_blocks,
-    #         h_dim=embed_dim,
-    #         context_len=context_len,
-    #         n_heads=n_heads,
-    #         drop_p=dropout_p,
-    #         state_mean=args['state_mean'], 
-    #         state_std=args['state_std'],
-    #         ).to(device)
-    # EAT_model.load_state_dict(torch.load(
-    #     os.path.join(model_path,"model_best.pt")
-    # , map_location=device))
-    # EAT_model.eval()
+    context_len = task_args["context_len"]      # K in decision transformer
+    n_blocks = task_args['n_blocks']            # num of transformer blocks
+    embed_dim = task_args['embed_dim']          # embedding (hidden) dim of transformer 
+    n_heads = task_args['n_heads']              # num of transformer heads
+    dropout_p = task_args['dropout_p']          # dropout probability
+    device = torch.device(env_args.sim_device)
+    pred_body = task_args.get('pred_body', True)
+    EAT_model = LeggedTransformerBody(
+            body_dim=body_dim,
+            state_dim=state_dim,
+            act_dim=act_dim,
+            n_blocks=n_blocks,
+            h_dim=embed_dim,
+            context_len=context_len,
+            n_heads=n_heads,
+            drop_p=dropout_p,
+            state_mean=args['state_mean'], 
+            state_std=args['state_std'],
+            ).to(device)
+    EAT_model.load_state_dict(torch.load(
+        os.path.join(model_path,"model_best.pt")
+    , map_location=device))
+    EAT_model.eval()
     
-    # #testing
-    # EAT_rows = np.arange(0.0, 1.0, 0.1)
-    # EAT_table = np.zeros((12,10))
-    # for i in range(12):#12条断腿情况
-    #     # for j in range (0, 0.8, 0.1):
-    #     for j in EAT_rows:            
-    #         EAT_table[i, np.where(EAT_rows==j)], _ = test_EAT(args, env, EAT_model, i, j)
-    # EAT_table[:,-1],_ = test_EAT(args, env, EAT_model, -1, 1) #测完好情况
-    # EAT_df = pd.DataFrame(EAT_table)
-    # EAT_df.index = codename_list
-    # EAT_df.columns = np.arange(0.0, 1.0, 0.1)
-    # EAT_res = EAT_df.to_csv(os.path.join(os.path.dirname(parentdir), "scripts/tools/EAT_test/bodyEAT_ngt.csv"), mode='w')
+    #testing
+    file_path = os.path.join(os.path.dirname(parentdir), "evals", run_name, model_name)
+    if not os.path.exists(file_path):
+        os.makedirs(file_path)
+    file_name = "AMP_EAT_Given_body.csv"
+    EAT_rows = np.arange(0.0, 1.0, 0.1)
+    EAT_table = np.zeros((12,10))
+    for i in range(12):#12条断腿情况
+        # for j in range (0, 0.8, 0.1):
+        for j in EAT_rows:            
+            EAT_table[i, np.where(EAT_rows==j)], _ = test_EAT(args, env, EAT_model, i, j, pred_body)
+            # EAT_table[:,-1],_ = test_EAT(args, env, EAT_model, -1, 1) #测完好情况
+            EAT_df = pd.DataFrame(EAT_table)
+            EAT_df.index = codename_list
+            EAT_df.columns = np.arange(0.0, 1.0, 0.1)
+            EAT_res = EAT_df.to_csv(os.path.join(file_path, file_name), mode='w')
     
     # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT2.csv"), EAT_table, delimiter=',')    #弃用了
     #测试EAT结束===================================================================

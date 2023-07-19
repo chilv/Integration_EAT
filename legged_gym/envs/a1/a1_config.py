@@ -58,9 +58,19 @@ class A1RoughCfg( LeggedRobotCfg ):
         action_scale = 0.25
         # decimation: Number of control action updates @ sim DT per policy DT
         decimation = 4
-
+    class commands:
+        curriculum = False
+        max_curriculum = 1.
+        num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
+        resampling_time = 10. # time before command are changed[s]
+        heading_command = True # if true: compute ang vel command from heading error
+        class ranges:
+            lin_vel_x = [-0.0, 0.7] # min max [m/s]
+            lin_vel_y = [-0.0, 0.0]   # min max [m/s]
+            ang_vel_yaw = [-1, 1]    # min max [rad/s]
+            heading = [-0., 0.]
     class asset( LeggedRobotCfg.asset ):
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/a1/urdf/a1.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources_old/robots/a1/urdf/a1.urdf'
         name = "a1"
         foot_name = "foot"
         penalize_contacts_on = ["thigh", "calf"]
@@ -71,8 +81,39 @@ class A1RoughCfg( LeggedRobotCfg ):
         soft_dof_pos_limit = 0.9
         base_height_target = 0.25
         class scales( LeggedRobotCfg.rewards.scales ):
-            torques = -0.0002
-            dof_pos_limits = -10.0
+            # termination = 0.0
+            # tracking_lin_vel = 1.5 * 1. / (.005 * 6)
+            # tracking_ang_vel = 0.5 * 1. / (.005 * 6)
+            # lin_vel_z = 0.0
+            # ang_vel_xy = 0.0
+            # orientation = 0.0
+            # torques = 0.0
+            # dof_vel = 0.0
+            # dof_acc = 0.0
+            # base_height = 0.0
+            # feet_air_time =  0.0
+            # collision = 0.0
+            # feet_stumble = 0.0
+            # action_rate = 0.0
+            # stand_still = 0.0
+            # dof_pos_limits = 0.0
+
+            # termination = -0.0
+            tracking_lin_vel = 1.0
+            tracking_ang_vel = 0.5
+            lin_vel_z = 0#-2.0
+            ang_vel_xy = 0#-0.05
+            orientation = 0#-2.0
+            torques = -0.0001
+            dof_vel = -0.
+            dof_acc = -2.5e-7
+            base_height = -0.
+            feet_air_time =  1.0
+            collision = -0.1
+            feet_stumble = -0.0
+            action_rate = -0.01
+            # dof_pos_dif = -0.1
+            # stand_still = -0.
 
 class A1RoughCfgPPO( LeggedRobotCfgPPO ):
     class algorithm( LeggedRobotCfgPPO.algorithm ):

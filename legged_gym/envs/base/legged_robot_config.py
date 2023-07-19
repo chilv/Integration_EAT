@@ -39,6 +39,7 @@ class LeggedRobotCfg(BaseConfig):
         env_spacing = 3.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
         episode_length_s = 20 # episode length in seconds
+        reference_state_initialization = False # initialize state from reference data
 
     class terrain:
         mesh_type = 'plane' # "heightfield" # none, plane, heightfield or trimesh
@@ -55,7 +56,7 @@ class LeggedRobotCfg(BaseConfig):
         measured_points_y = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5]
         selected = False # select a unique terrain type and pass all arguments
         terrain_kwargs = None # Dict of arguments for selected terrain
-        max_init_terrain_level = 5 # starting curriculum state
+        max_init_terrain_level = 0 # starting curriculum state
         terrain_length = 8.
         terrain_width = 8.
         num_rows= 10 # number of terrain rows (levels)
@@ -72,26 +73,14 @@ class LeggedRobotCfg(BaseConfig):
         resampling_time = 10. # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
         class ranges:
-            lin_vel_x = [-0.0, 0.7] # min max [m/s]
-            lin_vel_y = [-0.0, 0.0]   # min max [m/s]
+            lin_vel_x = [-1.0, 1.0] # min max [m/s]
+            lin_vel_y = [-1.0, 1.0]   # min max [m/s]
             ang_vel_yaw = [-1, 1]    # min max [rad/s]
-            heading = [-0., 0.]
-
-    # class commands:
-    #     curriculum = False
-    #     max_curriculum = 1.
-    #     num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
-    #     resampling_time = 10. # time before command are changed[s]
-    #     heading_command = True # if true: compute ang vel command from heading error
-    #     class ranges:
-    #         lin_vel_x = [-1.0, 1.0] # min max [m/s]
-    #         lin_vel_y = [-1.0, 1.0]   # min max [m/s]
-    #         ang_vel_yaw = [-1, 1]    # min max [rad/s]
-    #         heading = [-3.14, 3.14]
+            heading = [-3.14, 3.14]
 
     class init_state:
         pos = [0.0, 0.0, 1.] # x,y,z [m]
-        rot = [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat]四元數貌似表達旋轉
+        rot = [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat]
         lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
         ang_vel = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
         default_joint_angles = { # target angles when action = 0.0
@@ -132,12 +121,29 @@ class LeggedRobotCfg(BaseConfig):
 
     class domain_rand:
         randomize_friction = True
-        friction_range = [0.5, 1.25]
-        randomize_base_mass = False
-        added_mass_range = [-1., 1.]
+        friction_range = [0.25, 1.75]
+        randomize_restitution = True
+        restitution_range = [0, 1]
+
+        randomize_base_mass = True
+        added_mass_range = [-1., 1.]  # kg
+        randomize_link_mass = True
+        link_mass_range = [0.8, 1.2]
+        randomize_com_pos = True
+        com_pos_range = [-0.05, 0.05]
+
         push_robots = True
         push_interval_s = 15
-        max_push_vel_xy = 1.
+        max_push_vel_xy = 1.0
+
+        randomize_gains = True
+        stiffness_multiplier_range = [0.9, 1.1]
+        damping_multiplier_range = [0.9, 1.1]
+        randomize_motor_strength = True
+
+        motor_strength_range = [0.9, 1.1]
+        randomize_action_latency = True
+        action_latency_range = [0, 3]  # *dt = 0.005
 
     class rewards:
         class scales:
@@ -149,17 +155,13 @@ class LeggedRobotCfg(BaseConfig):
             orientation = -0.
             torques = -0.00001
             dof_vel = -0.
-            dof_acc = -2.5e-7 #
-            base_height = -0.
+            dof_acc = -2.5e-7
+            base_height = -0. 
             feet_air_time =  1.0
             collision = -1.
-            feet_stumble = -0.0
-            action_rate = -0.01 #
+            feet_stumble = -0.0 
+            action_rate = -0.01
             stand_still = -0.
-            action_topos = -0.
-            action_magnitude = -0.01
-            torques_smooth = -0.0003 #for flat
-            energy = -0#0.003
 
         only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
@@ -216,7 +218,7 @@ class LeggedRobotCfg(BaseConfig):
             contact_collection = 2 # 0: never, 1: last sub-step, 2: all sub-steps (default=2)
 
 class LeggedRobotCfgPPO(BaseConfig):
-    seed = 1
+    seed = -1
     runner_class_name = 'OnPolicyRunner'
     class policy:
         init_noise_std = 1.0
@@ -247,16 +249,15 @@ class LeggedRobotCfgPPO(BaseConfig):
         policy_class_name = 'ActorCritic'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24 # per iteration
-        max_iterations = 50000 # number of policy updates
-        body_dim = 0
-
+        max_iterations = 1500 # number of policy updates
+        body_dim = 0 # the dim of body used in "Decoder"
+        
         # logging
-        save_interval = 20000 # check for potential saves every this many iterations
+        save_interval = 200 # check for potential saves every this many iterations
         experiment_name = 'test'
-        run_name = ''
+        run_name = 'Default'
         # load and resume
         resume = False
-        load_run = 'raw' # -1 = last run
-        checkpoint = 1500 # -1 = last saved model
+        load_run = -1 # -1 = last run
+        checkpoint = -1 # -1 = last saved model
         resume_path = None # updated from load_run and chkpt
-

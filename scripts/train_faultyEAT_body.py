@@ -20,7 +20,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from utils import D4RLTrajectoryDataset,D4RLTrajectoryDatasetForTert, evaluate_on_env_batch_body, get_dataset_config, partial_traj #, get_d4rl_normalized_score,
-from model import LeggedTransformerBody, LeggedTransformerPro
+from model import LeggedTransformerBody, LeggedTransformerPro, LeggedTransformerBody_Global_Steps
 import wandb
 from legged_gym.utils import task_registry, Logger 
 from tqdm import trange, tqdm
@@ -64,14 +64,19 @@ def train(args):
 
     env_args = get_args()
     env_args.sim_device = args["device"]
-
+    env_args.task = args["task"]
     env_cfg, _ = task_registry.get_cfgs(name =env_args.task)
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, args["num_eval_ep"])
     env_cfg.terrain.curriculum = False
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]
+    env_cfg.commands.ranges.lin_vel_x = [-0.7,0.7]
+    # env_cfg.commands.ranges.lin_vel_y = [-0.5, 0.5]
+    env_cfg.commands.ranges.ang_vel_yaw = [-1,1]
+
+    env_cfg.commands.ranges.lin_vel_y = [0, 0]
+    # env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]
     
     env, _ = task_registry.make_env(name = env_args.task, args = env_args, env_cfg = env_cfg)
     
@@ -137,7 +142,7 @@ def train(args):
         with open(pkl, 'rb') as f:
             thelist = pickle.load(f)
 
-        assert "body" in thelist[0]
+        assert "bodies" in thelist[0] or "bodys" in thelist[0] or "body" in thelist[0]
         if args["cut"] == 0:
             big_list = big_list + thelist
         else:
@@ -147,7 +152,7 @@ def train(args):
     with open(os.path.join(log_dir, model_file_name,"args.yaml") , "w") as log_for_arg:
         print(yaml.dump_all([args, env_args], log_for_arg))
         
-    traj_dataset = D4RLTrajectoryDatasetForTert(big_list, context_len, leg_trans_pro=True)
+    traj_dataset = D4RLTrajectoryDataset(big_list, context_len, leg_trans_pro=True)
     assert body_dim == traj_dataset.body_dim
     
     state_mean, state_std = traj_dataset.get_state_stats(body=False)
@@ -169,18 +174,33 @@ def train(args):
     #---------------------------------------------------------------------------------------------------------------------------
     # if slices == 0:
     print("model preparing")
+    # if args.get("Global_Step_Embeddings", False): # Not Work
+    #     model = LeggedTransformerBody_Global_Steps(
+    #             body_dim=body_dim,
+    #             state_dim=state_dim,
+    #             act_dim=act_dim,
+    #             n_blocks=n_blocks,
+    #             h_dim=embed_dim,
+    #             context_len=context_len,
+    #             n_heads=n_heads,
+    #             drop_p=dropout_p,
+    #             state_mean=state_mean,
+    #             state_std=state_std,
+    #         ).to(device)
+    # else:
+    # Local_Context_Len Positional Encoding 
     model = LeggedTransformerBody(
-                body_dim=body_dim,
-                state_dim=state_dim,
-                act_dim=act_dim,
-                n_blocks=n_blocks,
-                h_dim=embed_dim,
-                context_len=context_len,
-                n_heads=n_heads,
-                drop_p=dropout_p,
-                state_mean=state_mean,
-                state_std=state_std,
-            ).to(device)
+            body_dim=body_dim,
+            state_dim=state_dim,
+            act_dim=act_dim,
+            n_blocks=n_blocks,
+            h_dim=embed_dim,
+            context_len=context_len,
+            n_heads=n_heads,
+            drop_p=dropout_p,
+            state_mean=state_mean,
+            state_std=state_std,
+        ).to(device)
     
     if args["model_dir"] is not None:
         model.load_state_dict(torch.load(
@@ -203,6 +223,7 @@ def train(args):
     random.seed(args["seed"])
     np.random.seed(args["seed"])
 
+    pred_body = args["pred_body"]
     max_d4rl_score = -1.0
     total_updates = 0
 
@@ -217,70 +238,74 @@ def train(args):
         log_body_losses = []
         model.train()
 
-        for timesteps, states, actions, teacher_actions, body, traj_mask in iter(traj_data_loader):
+        for states, actions, bodies, gt_bodies, traj_mask in iter(traj_data_loader):
 
-            timesteps = timesteps.to(device)    # B x T
+            # timesteps = timesteps.to(device)    # B x T
             states = states.to(device)          # B x T x state_dim
 
             actions = actions.to(device)        # B x T x act_dim
-            body = body.to(device)  # B x T x body_dim
-            body_target = torch.clone(body).detach().to(device)
+            bodies = bodies.to(device)  # B x T x body_dim
+            B, T, D = bodies.shape
+            gt_bodies = gt_bodies.to(device)  # B x T x body_dim
+            body_target = torch.clone(gt_bodies).detach().to(device)
             traj_mask = traj_mask.to(device)    # B x T
-            action_target = torch.clone(teacher_actions).detach().to(device)
-            body_1 = torch.ones_like(actions)   #body full of 1.0
-               
-            _, _, body_preds = model.forward(
-                                                            timesteps=timesteps,
-                                                            states=states,
-                                                            actions=actions,
-                                                            body = body_1
-                                                            # body=body
-                                                        )
-            
-            # mesure body loss
-            # 预测的body是当前body
-            body_preds = body_preds.clamp(0.0, 1.0)
-            # only consider non padded elements
-            target_joints = torch.argmin(body, dim=-1).unsqueeze(2)
+            action_target = torch.clone(actions).detach().to(device)
 
-            #仅保留主要loss
-            body_main_loss = F.mse_loss(
-                body_preds.gather(
-                    dim=2,index = target_joints), 
-                body_target.gather(
-                    dim=2,index = target_joints), 
-                reduction='mean')
-            
-            #adversary loss
-            _, idx1 = torch.sort(torch.abs(body_preds.detach()-body_target), dim=-1, descending=False)
-            p = (idx1!=target_joints.expand(-1,-1,12)).nonzero()[:,-1].reshape((512,20,11)) #非最小元素的所有坐标
-            p = p[:,:,:2]
-            #按理说应该要body_adversary尽可能远离body_target
-            # 但由于目前的setting主要是从1下降到任意坏损值，所以偷懒写成body_adversary离1的距离越近越好
-            body_adversary_loss = torch.exp(
-                (body_preds.gather(dim=2,index = p) 
-                - body_target.gather(dim=2,index = target_joints).expand(-1,-1,2)).mean()
-            )
-            
-            body_preds = body_preds.view(-1, body_dim)[traj_mask.view(-1,) > 0]
-            body_target = body_target.view(-1, body_dim)[traj_mask.view(-1,) > 0]
-            body_loss = body_main_loss + body_adversary_loss 
-            + F.mse_loss(body_preds, body_target, reduction='mean')
+            if pred_body:
+                # body_1 = torch.ones_like(actions)   #body full of 1.0
+                
+                _, _, body_preds = model.forward(
+                                                                states=states,
+                                                                actions=actions,
+                                                                bodies = bodies
+                                                                # body=body
+                                                            )
+                
+                # mesure body loss
+                # 预测的body是当前body
+                body_preds = body_preds.clamp(0.0, 1.0)
+                # only consider non padded elements
+                target_joints = torch.argmin(gt_bodies, dim=-1).unsqueeze(2)
+
+                #仅保留主要loss
+                body_main_loss = F.mse_loss(
+                    body_preds.gather(
+                        dim=2,index = target_joints), 
+                    body_target.gather(
+                        dim=2,index = target_joints), 
+                    reduction='mean')
+                
+                #adversary loss
+                _, idx1 = torch.sort(torch.abs(body_preds.detach()-body_target), dim=-1, descending=False)
+                p = (idx1!=target_joints.expand(-1,-1,12)).nonzero()[:,-1].reshape((B,T,D-1)) #非最小元素的所有坐标
+                p = p[:,:,:2]
+                #按理说应该要body_adversary尽可能远离body_target
+                # 但由于目前的setting主要是从1下降到任意坏损值，所以偷懒写成body_adversary离1的距离越近越好
+                body_adversary_loss = torch.exp(
+                    (body_preds.gather(dim=2,index = p) 
+                    - body_target.gather(dim=2,index = target_joints).expand(-1,-1,2)).mean()
+                )
+                
+                body_preds = body_preds.view(-1, body_dim)[traj_mask.view(-1,) > 0]
+                body_target = body_target.view(-1, body_dim)[traj_mask.view(-1,) > 0]
+                body_loss = body_main_loss + body_adversary_loss 
+                + F.mse_loss(body_preds, body_target, reduction='mean')
             
             #measure action loss
             _, action_preds, _ = model.forward(
-                                                            timesteps=timesteps,
                                                             states=states,
                                                             actions=actions,
                                                             # body = body_1
-                                                            body=body
+                                                            bodies=bodies
                                                         )
             action_preds = action_preds.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             action_target = action_target.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             action_loss = F.mse_loss(action_preds, action_target, reduction='mean')
-        
-            total_loss = (args["action_loss_w"] * action_loss 
-                          + args["body_loss_w"] * body_loss).to(torch.float)
+
+            total_loss = args["action_loss_w"] * action_loss
+            if pred_body:
+                total_loss += (args["body_loss_w"] * body_loss)
+            total_loss = total_loss.to(torch.float)
 
             optimizer.zero_grad()
             total_loss.backward()
@@ -288,15 +313,19 @@ def train(args):
             optimizer.step()
             scheduler.step()
 
-            log_body_losses.append(body_loss.detach().cpu().item())
+            if pred_body:
+                log_body_losses.append(body_loss.detach().cpu().item())
             log_action_losses.append(action_loss.detach().cpu().item())
 
             if not args["wandboff"]:
-                wandb.log({"Loss_body": body_loss.detach().cpu().item(), 
+                if pred_body:
+                    wandb.log({"Loss_body": body_loss.detach().cpu().item(), 
                            "Loss_body_main": body_main_loss.detach().cpu().item(),
                            "Loss_body_adv": body_adversary_loss.detach().cpu().item(),
                            "Loss_action": action_loss.detach().cpu().item(),
                            })
+                else:
+                    wandb.log({"Loss_action": action_loss.detach().cpu().item()})
 
             total_updates += num_updates_per_iter
 
@@ -310,7 +339,7 @@ def train(args):
             results = evaluate_on_env_batch_body(model = model, device=device, context_len=context_len, env=env, 
                                                 body_target=eval_body_vec, num_eval_ep = num_eval_ep, 
                                                 max_test_ep_len = max_eval_ep_len, state_mean = state_mean, 
-                                                state_std = state_std, body_pre = True)
+                                                state_std = state_std, body_pre = pred_body)
 
         
             eval_avg_reward = results['eval/avg_reward']

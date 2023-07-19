@@ -35,7 +35,7 @@ NUM_ENVS = 1024  # 10000 # 400 #4000 #1000 # 50# 20000 #EAT环境数不能开太
 REP = 1  # 10 #20
 
 
-def pareto_body(bodys, joint, done, rate=0.05):
+def pareto_body(bodies, joint, done, rate=0.05):
     # 模仿step_body，进行两点改动：
     # 1. 为了增加从1向任意值掉落的现象，每context_length步恢复置1，且期间只掉落一次
     # 2. 掉落概率符合帕雷特分布，为了将x隐射到0~1我采用tan函数，函数为：am^a/(tan(pi*x/2))^(a+1),取a=0.01,m=1
@@ -45,17 +45,17 @@ def pareto_body(bodys, joint, done, rate=0.05):
     rate: 每个step，有rate的概率使得关节扭矩往下掉，剩余扭矩比例随机
     """
 
-    num_envs = bodys.shape[0]
+    num_envs = bodies.shape[0]
     t = torch.rand((num_envs,1))
-    t = ((t < rate) & (bodys[:, joint].detach().cpu() == 1.0)) * (
+    t = ((t < rate) & (bodies[:, joint].detach().cpu() == 1.0)) * (
         1 - 0.01 / torch.tan(torch.pi * torch.rand(num_envs,1) / 2) ** 1.01
     )
     t = 1 - t
-    t = t.to(bodys.device)
-    bodys[:, joint] = t * bodys[:, joint] + done.unsqueeze(-1)
-    # reset时bodys对应位置置一
+    t = t.to(bodies.device)
+    bodies[:, joint] = t * bodies[:, joint] + done.unsqueeze(-1)
+    # reset时bodies对应位置置一
 
-    return bodys.clamp(0.0, 1.0)
+    return bodies.clamp(0.0, 1.0)
 
 
 def do_collect(args, env, ippo, eat_model, fault_tag=[-1]):
@@ -138,7 +138,7 @@ def do_collect(args, env, ippo, eat_model, fault_tag=[-1]):
             else:   # t >= context_len
                 #generate body of this round
                 running_body = pareto_body(
-                    bodys=running_body, joint=fault_tag, done=done, rate=0.05
+                    bodies=running_body, joint=fault_tag, done=done, rate=0.05
                 )
                 _, act_preds, _ = eat_model.forward(
                     timesteps[:, t - context_len + 1 : t + 1],

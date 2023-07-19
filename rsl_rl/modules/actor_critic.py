@@ -88,33 +88,33 @@ class ActorCritic(nn.Module):
         return self.distribution.entropy().sum(dim=-1)
 
 
-    def update_distribution(self, observations, embodys = None):
-        if embodys is None:
+    def update_distribution(self, observations, embodies = None):
+        if embodies is None:
             mean = self.actor(observations)
         else:
-            mean = self.actor(torch.cat((observations, embodys), dim=1))
+            mean = self.actor(torch.cat((observations, embodies), dim=1))
         self.distribution = Normal(mean, mean*0. + self.std)
 
-    def act(self, observations, embodys = None, **kwargs):
-        self.update_distribution(observations, embodys)
+    def act(self, observations, embodies = None, **kwargs):
+        self.update_distribution(observations, embodies)
         return self.distribution.sample()
     
     def get_actions_log_prob(self, actions):
         return self.distribution.log_prob(actions).sum(dim=-1)
 
-    def act_inference(self, observations, embodys=None):
-        if embodys is None:
+    def act_inference(self, observations, embodies=None):
+        if embodies is None:
             actions_mean = self.actor(observations)
         else:
-            actions_mean = self.actor(torch.cat((observations, embodys), dim=1))
+            actions_mean = self.actor(torch.cat((observations, embodies), dim=1))
             
         return actions_mean
 
-    def evaluate(self, critic_observations, embodys = None, **kwargs):
-        if embodys is None:
+    def evaluate(self, critic_observations, embodies = None, **kwargs):
+        if embodies is None:
             value = self.critic(critic_observations)
         else:
-            value = self.critic(torch.cat((critic_observations,embodys), dim=1))
+            value = self.critic(torch.cat((critic_observations,embodies), dim=1))
         return value
 
 def get_activation(act_name):

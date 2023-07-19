@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-#
+# 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 #
@@ -35,7 +35,7 @@ import torch
 import numpy as np
 
 from rsl_rl.env import VecEnv
-from rsl_rl.runners import OnPolicyRunner
+from rsl_rl.runners import OnPolicyRunner, AMPOnPolicyRunner
 
 from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 from .helpers import get_args, update_cfg_from_args, class_to_dict, get_load_path, set_seed, parse_sim_params
@@ -148,19 +148,18 @@ class TaskRegistry():
             log_dir = os.path.join(log_root, datetime.now().strftime(
                 '%b%d_%H-%M-%S') + '_' + train_cfg.runner.run_name)
 
+        # print(train_cfg.runner_class_name)
+        runner_class = eval(train_cfg.runner_class_name)
         train_cfg_dict = class_to_dict(train_cfg)
-        runner = OnPolicyRunner(env, train_cfg_dict,
-                                log_dir, device=args.rl_device, body_dim = train_cfg.runner.body_dim)
-        # save resume path before creating a new log_dir
+        runner = runner_class(env, train_cfg_dict, log_dir, device=args.rl_device, body_dim = train_cfg.runner.body_dim)
+        #save resume path before creating a new log_dir
         resume = train_cfg.runner.resume
         if resume:
             # load previously trained model
-            resume_path = get_load_path(
-                log_root, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)
+            resume_path = get_load_path(log_root, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)
             print(f"Loading model from: {resume_path}")
             runner.load(resume_path)
         return runner, train_cfg
-
 
 # make global task registry
 task_registry = TaskRegistry()

@@ -148,53 +148,89 @@ def flaw_generation(
         t = torch.ones((num_envs, len(fixed_joint)), dtype=int) * torch.tensor(
             fixed_joint
         )
-    bodys = torch.ones(num_envs, bodydim).to(device)
+    bodies = torch.ones(num_envs, bodydim).to(device)
     for i in range(num_envs):
         for joint in [t[i]]:
-            bodys[i, joint] = (
+            bodies[i, joint] = (
                 random.random() * upper_bound if flawed_rate == -1 else flawed_rate
             )
-    return bodys, t
+    return bodies, t
 
 
-def step_body(
-    bodys, joint, rate=0.004, threshold=0
-):  # each joint has a flaw rate to be partial of itself.
-    """
-    joint: (num_envs, num) OR a single int, 每个环境对应的1个坏损关节
+# def step_body(bodies, joint, rate = 0.004, threshold = 0, upper_bound=1): #each joint has a flaw rate to be partial of itself.
+#     '''
+#     joint: (num_envs, num) OR a single int, 每个环境对应的1个坏损关节 
+#         #TODO: joint will become (num_envs, num), num means the number of flawed joints.
+#     rate: 每个step，有rate的概率使得关节扭矩往下掉，剩余扭矩比例随机
+#     threshold， 在剩余扭矩高于threshold时，重置到随机的一个扭矩。
+#     '''        
+#     num_envs = bodies.shape[0]
+#     t = torch.rand(num_envs)
+#     t = (t<rate) * torch.rand(num_envs)
+#     t = 1 - t
+#     t = t.to(bodies.device)
+#     if type(joint) == torch.Tensor:
+#         joint = joint.to(bodies.device)
+#         # print(bodies.shape, joint.shape, t.shape)
+#         p = torch.gather(bodies, 1, joint) * t
+#         bodies = torch.scatter(bodies, 1, joint, p)
+#         if threshold > 0: 
+#             tmp = torch.gather(bodies, 1, joint)
+#             t = (tmp < threshold) * torch.rand(num_envs, device=bodies.device)
+#             t = t.to(bodies.device)
+#             t = 1 / (1 - t)
+#             bodies = torch.scatter(bodies, 1, joint, t * tmp)
+#             bodies = torch.clamp(bodies, min=0, max=upper_bound)
+#     else:
+#         bodies[:, joint] *= t
+#         if threshold > 0:  # Here we assume that joint must be a single int
+#             t = (bodies[:, joint] < threshold) * torch.rand(num_envs, device=bodies.device) * (torch.rand(num_envs, device= bodies.device) < rate)
+#             t = t.to(bodies.device)
+#             t = 1 / (1 - t)
+#             bodies[:, joint] *= t
+#             bodies = torch.clamp(bodies, min=0, max=upper_bound)
+
+#     return bodies
+def step_body(bodies, joint, rate = 0.004, threshold = 0, upper_bound=1): #each joint has a flaw rate to be partial of itself.
+    '''
+    joint: (num_envs, num) OR a single int, 每个环境对应的1个坏损关节 
         #TODO: joint will become (num_envs, num), num means the number of flawed joints.
-    rate: 每个step，有rate的概率使得关节扭矩往下掉，剩余扭矩比例随机
-    threshold， 在剩余扭矩高于threshold时，重置到随机的一个扭矩。
-    """
-    num_envs = bodys.shape[0]
+    rate: 每个step, 有rate的概率使得关节扭矩往下掉, 剩余扭矩比例随机
+    threshold, 在剩余扭矩低于threshold时, 重置到随机的一个扭矩。
+    '''        
+    num_envs = bodies.shape[0]
     t = torch.rand(num_envs)
-    t = (t < rate) * torch.rand(num_envs)
+    t = (t<rate) * torch.rand(num_envs)
     t = 1 - t
-    t = t.to(bodys.device)
+    t = t.to(bodies.device)
     if type(joint) == torch.Tensor:
-        joint = joint.to(bodys.device)
-        # print(bodys.shape, joint.shape, t.shape)
-        p = torch.gather(bodys, 1, joint) * t
-        bodys = torch.scatter(bodys, 1, joint, p)
-        if threshold > 0:
-            tmp = torch.gather(bodys, 1, joint)
-            t = (tmp < threshold) * torch.rand(num_envs, device=bodys.device)
-            t = t.to(bodys.device)
-            t = 1 / (1 - t)
-            bodys = torch.scatter(bodys, 1, joint, t * tmp)
-            bodys = torch.min(bodys, torch.ones_like(bodys))
+        joint = joint.to(bodies.device)
+        # print(bodies.shape, joint.shape, t.shape)
+        p = torch.gather(bodies, 1, joint) * t
+        bodies = torch.scatter(bodies, 1, joint, p)
+        if threshold > 0: 
+            # tmp = torch.gather(bodies, 1, joint)
+            # t = (tmp < threshold) * torch.rand(num_envs, device=bodies.device)
+            # t = t.to(bodies.device)
+            # t = 1 / (1 - t)
+            # bodies = torch.scatter(bodies, 1, joint, t * tmp)
+            rands = torch.rand_like(bodies)/2 + 0.6
+            rands = torch.clamp(rands, min=0, max=upper_bound-1e-9)
+            bodies = torch.where(bodies>threshold, bodies, rands)
+            # bodies = torch.clamp(bodies, min=0, max=upper_bound)
     else:
-        bodys[:, joint] *= t
+        bodies[:, joint] *= t
         if threshold > 0:  # Here we assume that joint must be a single int
-            t = (bodys[:, joint] < threshold) * torch.rand(
-                num_envs, device=bodys.device
-            )
-            t = t.to(bodys.device)
-            t = 1 / (1 - t)
-            bodys[:, joint] *= t
-            bodys = torch.min(bodys, torch.ones_like(bodys))
+            # t = (bodies[:, joint] < threshold) * torch.rand(num_envs, device=bodies.device) * (torch.rand(num_envs, device= bodies.device) < rate_reset)
+            # t = t.to(bodies.device)
+            # t = 1 / (1 - t)
+            # bodies[:, joint] *= t
+            rands = torch.rand_like(bodies)/2 + 0.6
+            rands = torch.clamp(rands, min=0, max=upper_bound-1e-9)
+            bodies = torch.where(bodies>threshold, bodies, rands)
+            # bodies = torch.clamp(bodies, min=0, max=upper_bound)
 
-    return bodys
+    return bodies
 
 
 def disable_leg(actions, target: str = "joint", index: int = 2):
@@ -310,7 +346,136 @@ def evaluate_on_env_batch_distill(
     results["eval/avg_reward"] = np.mean(total_rewards)
     results["eval/avg_ep_len"] = np.mean(total_steps)
     return results
+def evaluate_Seperate_Body(
+  	model,
+    body_model,
+    device,
+    context_len,
+    env,
+    body_target,
+    rtg_scale = None,
+    num_eval_ep=10,
+    max_test_ep_len=1000,
+    state_mean=None,
+    state_std=None,
+    body_mean=None,
+    body_std=None,
+    render=False,
+    prompt_policy=None,
+    body_pre:bool = False,
+    body_gt:bool = False
+):
+    
+    eval_batch_size = num_eval_ep  # required for forward pass
 
+    results = {}
+    total_reward = 0
+    total_timesteps = 0
+    state_dim = env.cfg.env.num_observations
+    act_dim = env.cfg.env.num_actions
+    body_dim = len(body_target)
+
+    assert state_mean is not None
+    if not torch.is_tensor(state_mean):
+        state_mean = torch.from_numpy(state_mean).to(device)
+    else:
+        state_mean = state_mean.to(device)
+
+    assert state_std is not None
+    if not torch.is_tensor(state_std):
+        state_std = torch.from_numpy(state_std).to(device)
+    else:
+        state_std = state_std.to(device)
+
+    timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
+    timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
+
+    model.eval()
+    # logger = Logger(env.dt)
+
+    with torch.no_grad():
+        actions = torch.zeros(
+            (eval_batch_size, max_test_ep_len, act_dim),
+            dtype=torch.float32,
+            device=device,
+        )
+        states = torch.zeros(
+            (eval_batch_size, max_test_ep_len, state_dim),
+            dtype=torch.float32,
+            device=device,
+        )  # Here we assume that obs = state !!
+        running_body, joints = flaw_generation(
+            eval_batch_size, bodydim=body_dim, fixed_joint=[-1], device=device, upper_bound =  0.5
+        )
+        running_body = running_body.to(device)
+        bodies = running_body.expand(max_test_ep_len, eval_batch_size, body_dim).type(
+            torch.float32
+        )
+        bodies = torch.transpose(bodies, 0, 1).to(device)
+        running_state, _ = env.reset()
+
+        total_rewards = np.zeros(eval_batch_size)
+        dones = np.zeros(eval_batch_size)
+
+        for t in range(max_test_ep_len):
+            total_timesteps += 1
+            states[:, t, :] = running_state
+            states[:, t, :] = (states[:, t, :] - state_mean) / state_std
+            if body_gt:
+                bodies[:, t, :] = running_body
+
+            if t < context_len:
+                _, act_preds, _ = model.forward(
+                    timesteps[:, :context_len],
+                    states[:, :context_len],
+                    actions[:, :context_len],
+                    bodies=bodies[:, :context_len],
+                )
+
+                if prompt_policy is None:
+                    act = act_preds[:, t].detach()
+                else:
+                    act = prompt_policy(running_state.to(device))
+            else:
+                if body_pre:
+                    body_preds = body_model.take_body(
+                        timesteps[:, t - context_len + 1 : t + 1],
+                        states[:, t - context_len + 1 : t + 1],
+                        actions[:,t-context_len+1:t+1])
+                    
+                    bodies[:, t] = body_preds[:, -1].detach()
+                    
+                _, act_preds, _ = model.forward(
+                    timesteps[:, t - context_len + 1 : t + 1],
+                    states[:, t - context_len + 1 : t + 1],
+                    actions[:, t - context_len + 1 : t + 1],
+                    bodies=bodies[:, t - context_len + 1 : t + 1],
+                )
+                act = act_preds[:, -1].detach()
+                
+            running_state, _, running_reward, done, infos = env.step(
+                act.cpu(), running_body
+            )
+
+            # if log_reward and infos["episode"]:
+            #     num_episodes = torch.sum(env.reset_buf).item()
+            #     if num_episodes > 0:
+            #         logger.log_rewards(infos["episode"], num_episodes)
+
+            actions[:, t] = act
+            total_reward += np.sum(running_reward.detach().cpu().numpy())
+            total_rewards += (
+                running_reward.detach().cpu().numpy()
+                * (done == 0).detach().cpu().numpy()
+            )
+            dones += ~done.detach().cpu().numpy()
+
+            running_body = step_body(running_body, joints, rate=0.004, threshold=0.004, upper_bound=0.5)
+
+    results["eval/avg_reward"] = np.mean(total_rewards)
+    results["eval/avg_ep_len"] = np.mean(dones)
+
+    return results
 
 def evaluate_on_env_batch_body(
     model,
@@ -354,7 +519,6 @@ def evaluate_on_env_batch_body(
     eval_batch_size = num_eval_ep  # required for forward pass
 
     results = {}
-    total_reward = 0
     total_timesteps = 0
     state_dim = env.cfg.env.num_observations
     act_dim = env.cfg.env.num_actions
@@ -372,8 +536,8 @@ def evaluate_on_env_batch_body(
     else:
         state_std = state_std.to(device)
 
-    timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
-    timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
+    # timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
+    # timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
 
     model.eval()
     # logger = Logger(env.dt)
@@ -393,28 +557,28 @@ def evaluate_on_env_batch_body(
             eval_batch_size, bodydim=body_dim, fixed_joint=[-1], device=device
         )
         running_body = running_body.to(device)
-        bodys = running_body.expand(max_test_ep_len, eval_batch_size, body_dim).type(
+        bodies = running_body.expand(max_test_ep_len, eval_batch_size, body_dim).type(
             torch.float32
         )
-        bodys = torch.transpose(bodys, 0, 1).to(device)
+        bodies = torch.transpose(bodies, 0, 1).to(device)
         running_state, _ = env.reset()
 
-        total_rewards = np.zeros(eval_batch_size)
-        dones = np.zeros(eval_batch_size)
+        total_rewards = torch.zeros(eval_batch_size).to(device)
+        steps = torch.zeros(eval_batch_size).to(device)
+        dones = torch.zeros(eval_batch_size).to(device)
 
         for t in range(max_test_ep_len):
             total_timesteps += 1
             states[:, t, :] = running_state
             states[:, t, :] = (states[:, t, :] - state_mean) / state_std
-            if body_gt:
-                bodys[:, t, :] = running_body
+            if body_gt or not body_pre:
+                bodies[:, t, :] = running_body
 
             if t < context_len:
                 _, act_preds, _ = model.forward(
-                    timesteps[:, :context_len],
                     states[:, :context_len],
                     actions[:, :context_len],
-                    body=bodys[:, :context_len],
+                    bodies=bodies[:, :context_len],
                 )
 
                 if prompt_policy is None:
@@ -424,23 +588,23 @@ def evaluate_on_env_batch_body(
             else:
                 if body_pre:
                     _, _, body_preds = model.forward(
-                        timesteps[:, t - context_len + 1 : t + 1],
                         states[:, t - context_len + 1 : t + 1],
                         actions[:, t - context_len + 1 : t + 1],
-                        body=bodys[:, t - context_len + 1 : t + 1],
+                        bodies=bodies[:, t - context_len + 1 : t + 1],
                     )
-                    bodys[:, t] = body_preds[:, -1].detach()
+                    bodies[:, t-context_len//2+1:] = body_preds[:, -context_len//2:].detach() 
+                    #Update last half of context_len Here. It should be better than only update the single one.
+                    #May be we can try to write some update function for that body.
                     
                 _, act_preds, _ = model.forward(
-                    timesteps[:, t - context_len + 1 : t + 1],
                     states[:, t - context_len + 1 : t + 1],
                     actions[:, t - context_len + 1 : t + 1],
-                    body=bodys[:, t - context_len + 1 : t + 1],
+                    bodies=bodies[:, t - context_len + 1 : t + 1],
                 )
                 act = act_preds[:, -1].detach()
                 
             running_state, _, running_reward, done, infos = env.step(
-                act.cpu(), running_body
+                act, running_body
             )
 
             # if log_reward and infos["episode"]:
@@ -449,17 +613,18 @@ def evaluate_on_env_batch_body(
             #         logger.log_rewards(infos["episode"], num_episodes)
 
             actions[:, t] = act
-            total_reward += np.sum(running_reward.detach().cpu().numpy())
             total_rewards += (
-                running_reward.detach().cpu().numpy()
-                * (done == 0).detach().cpu().numpy()
-            )
-            dones += ~done.detach().cpu().numpy()
+                running_reward
+                * (dones == 0)
+            ).detach()
+            steps += (dones==0).detach()
 
-            running_body = step_body(running_body, joints, rate=0.004, threshold=0.4)
+            dones += done.detach()
 
-    results["eval/avg_reward"] = np.mean(total_rewards)
-    results["eval/avg_ep_len"] = np.mean(dones)
+            running_body = step_body(running_body, joints, rate=0.004, threshold=0.001)
+
+    results["eval/avg_reward"] = torch.mean(total_rewards)
+    results["eval/avg_ep_len"] = torch.mean(steps)
 
     return results
 
@@ -537,28 +702,29 @@ class D4RLTrajectoryDataset(Dataset):
             print("CONCATENATE BODY INTO STATE ..........")
             for traj in tqdm(self.trajectories):
                 traj["observations"] = np.concatenate(
-                    [traj["body"], traj["observations"]], axis=1
+                    [traj["bodies"], traj["observations"]], axis=1
                 )
                 traj["next_observations"] = np.concatenate(
-                    [traj["body"], traj["next_observations"]], axis=1
+                    [traj["bodies"], traj["next_observations"]], axis=1
                 )
 
         # calculate min len of traj, state mean and variance
         # and returns_to_go for all traj
         min_len = 10**6
         states = []
-        bodies = []
+        # bodies = []
         # pdb.set_trace()
         for traj in self.trajectories:
             traj_len = traj["observations"].shape[0]
             min_len = min(min_len, traj_len)
             states.append(traj["observations"])
-            traj["returns_to_go"] = traj["body"]
-            bodies.append(traj["body"])
+            # traj["bodies"] = traj.get("bodies", traj.get("body", None))
+            # traj["returns_to_go"] = traj["bodies"]
+            # bodies.append(traj["body"])
 
         # used for input normalization
         states = np.concatenate(states, axis=0)
-        bodies = np.concatenate(bodies, axis=0)
+        # bodies = np.concatenate(bodies, axis=0)
         self.state_mean, self.state_std = (
             np.mean(states, axis=0),
             np.std(states, axis=0) + 1e-6,
@@ -583,7 +749,8 @@ class D4RLTrajectoryDataset(Dataset):
 
     @property
     def body_dim(self):
-        return self.trajectories[0]["body"].shape[-1]
+        traj = self.trajectories[0]
+        return traj.get("bodies", traj.get("bodys", traj.get("body", torch.ones(12)))).shape[-1]
 
     def __len__(self):
         return len(self.trajectories)
@@ -598,10 +765,13 @@ class D4RLTrajectoryDataset(Dataset):
 
             states = torch.from_numpy(traj["observations"][si : si + self.context_len])
             actions = torch.from_numpy(traj["actions"][si : si + self.context_len])
-            returns_to_go = torch.from_numpy(
-                traj["returns_to_go"][si : si + self.context_len]
+            bodies = torch.from_numpy(
+                traj.get("bodies", traj.get("bodys", traj.get("body", torch.ones(traj_len, 12))))[si : si + self.context_len]
             )
-            timesteps = torch.arange(start=si, end=si + self.context_len, step=1)
+            gt_bodies = torch.from_numpy(
+                traj.get("gt_bodies", traj.get("gt_bodys", traj.get("bodies", traj.get("bodys", traj.get("body", torch.ones(traj_len, 12))))))[si : si + self.context_len]
+            )
+            # timesteps = torch.arange(start=si, end=si + self.context_len, step=1)
 
             # all ones since no padding
             traj_mask = torch.ones(self.context_len, dtype=torch.long)
@@ -632,21 +802,35 @@ class D4RLTrajectoryDataset(Dataset):
                 dim=0,
             )
 
-            returns_to_go = torch.from_numpy(traj["returns_to_go"])
-            returns_to_go = torch.cat(
+            bodies = torch.from_numpy(
+                        traj.get("bodies", traj.get("bodys", traj.get("body", None)))
+                        )            
+            bodies = torch.cat(
                 [
-                    returns_to_go,
+                    bodies,
                     torch.zeros(
-                        ([padding_len] + list(returns_to_go.shape[1:])),
-                        dtype=returns_to_go.dtype,
+                        ([padding_len] + list(bodies.shape[1:])),
+                        dtype=bodies.dtype,
                     ),
                 ],
                 dim=0,
             )
             # pdb.set_trace()
 
-            timesteps = torch.arange(start=0, end=self.context_len, step=1)
-
+            # timesteps = torch.arange(start=0, end=self.context_len, step=1)
+            gt_bodies = torch.from_numpy(
+                traj.get("gt_bodies", traj.get("gt_bodys", traj.get("bodies", traj.get("bodys", traj.get("body", None)))))
+            )
+            gt_bodies = torch.cat(
+                [
+                    gt_bodies,
+                    torch.zeros(
+                        ([padding_len] + list(gt_bodies.shape[1:])),
+                        dtype=gt_bodies.dtype,
+                    ),
+                ],
+                dim=0,
+            )
             traj_mask = torch.cat(
                 [
                     torch.ones(traj_len, dtype=torch.long),
@@ -655,7 +839,7 @@ class D4RLTrajectoryDataset(Dataset):
                 dim=0,
             )
 
-        return timesteps, states, actions, returns_to_go, traj_mask
+        return states, actions, bodies, gt_bodies, traj_mask
 
 
 class D4RLTrajectoryDatasetForTert(Dataset):
@@ -716,7 +900,7 @@ class D4RLTrajectoryDatasetForTert(Dataset):
 
     @property
     def body_dim(self):
-        return self.trajectories[0]["body"].shape[-1]
+        return self.trajectories[0]["bodies"].shape[-1]
 
     def __len__(self):
         return len(self.trajectories)
@@ -847,7 +1031,7 @@ def get_dataset_config(dataset):
 
     if dataset == "IPPOtest":
         datafile = "Trajectory_IPPO_3"
-        i_magic_list = [f"PPO_I_{x}" for x in range(2)]
+        i_magic_list = [f"PPO_I_{x}" for x in range(1)]
         eval_body_vec = [1 for _ in range(12)]
     if dataset == "IPPO":
         datafile = "Trajectory_IPPO"
@@ -893,6 +1077,21 @@ def get_dataset_config(dataset):
         datafile = "Trajectory_Ebody3"
         i_magic_list = [f"EBody_v1_{x}" for x in range(12)]
         eval_body_vec = [1 for _ in range(12)]
+
+    if dataset == "AMP_PPO":
+        datafile = "Trajectory_AMP"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+        
+    if dataset == "AMP_PPO_no_liny":
+        datafile = "Trajectory_AMP_No_liny"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "AMP_PPO_latency30":
+        datafile = "Trajectory_AMP_latency30"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+
     if dataset == "faulty":
         datafile = "P20F10000-vel0.5-v0"
         i_magic_list = [

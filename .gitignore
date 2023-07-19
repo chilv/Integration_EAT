@@ -7,7 +7,7 @@
 #忽略采集的数据集
 /data/
 #忽略EAT采集的数据集
-/EAT_runs/
+/EAT_runs*/
 /Tert_runs/
 #一些过程文件
 *.pyc
@@ -26,3 +26,6 @@
 
 #EAT_预测准确度
 /tools/EAT_test/
+evals/
+*/*eval*/
+*.csv

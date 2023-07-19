@@ -1,19 +1,17 @@
-# 试图将所有args统一到yaml格式
-# 
-
+#试图将所有args统一到yaml格式
 # alg: 
 batch_size: 512
 context_len: 20
 cut: 0
-dataset: EBody3 #EBody #IPPOtest #IPPO8
-dataset_dir: Integration_EAT/data_2/
-device: cuda:1
+dataset: AMP_PPO_latency30 #AMP_PPO_no_liny #AMP_PPO_no_liny #AMP_PPO #IPPO8 #IPPOtest #IPPO8
+dataset_dir: Integration_EAT/data/
+device: cuda:5
 dropout_p: 0.1
 embed_dim: 128
-log_dir: Integration_EAT/EAT_runs/
-lr: 0.00001  #默认1e-4
+log_dir: Integration_EAT/EAT_runs_AMP/
+lr: 0.0001
 max_eval_ep_len: 1000
-model_dir: /NAS2020/Workspaces/DRLGroup/wuxinyuan/leggedrobots/Integration_EAT/EAT_runs/EAT_given_body_IPPO_02
+model_dir: 
 n_blocks: 6
 n_epochs_ref: 1
 n_heads: 1
@@ -21,25 +19,26 @@ nobody: false
 noise: 0
 num_eval_ep: 1024
 num_updates_per_iter: 100
-seed: 66
+seed: 88
 warmup_steps: 10000
 wt_decay: 0.005
-algorithm_name: EATBody
-action_loss_w: 1.0
-body_loss_w: 1.0
-
+algorithm_name: EAT_Given_body_AMP_Teacher_with_latency
+body_loss_w: 1
+action_loss_w: 1
+pred_body: true
 
 # env:
-compute_device_id: 0
+compute_device_id: 5
 flex: false
-graphics_device_id: 0
+graphics_device_id: 5
 headless: false
 orovod: false
 joint:
  - - -1
 load_run: null
 max_iterations: null
-not_use_body_norm: false
+not_use_body_norm: true
+not_use_state_norm: true
 num_envs: null
 num_threads: 0
 #  physics_engine: !!python/object/new:isaacgym._bindings.linux-x86_64.gym_38.SimType
@@ -49,21 +48,23 @@ pipeline: gpu
 rate: -1
 resume: false
 # rl_device: cuda:0
-# sim_device: cuda:0
-sim_device_id: 0
+sim_device: cuda:5
+sim_device_id: 5
 sim_device_type: cuda
 slices: 0
 subscenes: 0
-task: a1
+task: a1_amp
 use_gpu: true
 use_gpu_pipeline: true
 state_dim: 48
 act_dim: 12
 body_dim: 12
+Global_Step_Embeddings: false
+
 
 # general:
 run_name: 
 checkpoint: null
 experiment_name: null
-note: this experiment aims to try only bodypre3's finetune with 1e-5 lr; 更改了train中action的两阶段训练，与body的采集中的action，意图更贴近真实action与body的场景
-wandboff: false
+note: Teacher from AMP, Postional Encoding on context len
+wandboff: False
