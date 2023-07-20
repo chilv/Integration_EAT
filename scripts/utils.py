@@ -592,7 +592,8 @@ def evaluate_on_env_batch_body(
                         actions[:, t - context_len + 1 : t + 1],
                         bodies=bodies[:, t - context_len + 1 : t + 1],
                     )
-                    bodies[:, t-context_len//2+1:] = body_preds[:, -context_len//2:].detach() 
+                    bodies = bodies.clone()
+                    bodies[:, t-context_len//2+1:t+1] = body_preds.clone()[:, -context_len//2:].detach()
                     #Update last half of context_len Here. It should be better than only update the single one.
                     #May be we can try to write some update function for that body.
                     

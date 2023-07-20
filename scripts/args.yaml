@@ -5,7 +5,7 @@ context_len: 20
 cut: 0
 dataset: AMP_PPO_latency30 #AMP_PPO_no_liny #AMP_PPO_no_liny #AMP_PPO #IPPO8 #IPPOtest #IPPO8
 dataset_dir: Integration_EAT/data/
-device: cuda:5
+device: cuda:1
 dropout_p: 0.1
 embed_dim: 128
 log_dir: Integration_EAT/EAT_runs_AMP/
@@ -28,9 +28,9 @@ action_loss_w: 1
 pred_body: true
 
 # env:
-compute_device_id: 5
+compute_device_id: 1
 flex: false
-graphics_device_id: 5
+graphics_device_id: 1
 headless: false
 orovod: false
 joint:
@@ -48,8 +48,8 @@ pipeline: gpu
 rate: -1
 resume: false
 # rl_device: cuda:0
-sim_device: cuda:5
-sim_device_id: 5
+sim_device: cuda:1
+sim_device_id: 1
 sim_device_type: cuda
 slices: 0
 subscenes: 0
