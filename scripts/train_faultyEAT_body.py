@@ -150,7 +150,10 @@ def train(args):
 
     # body_preds = None
     with open(os.path.join(log_dir, model_file_name,"args.yaml") , "w") as log_for_arg:
-        print(yaml.dump_all([args, env_args], log_for_arg))
+        print(yaml.dump(args, log_for_arg))
+        
+    with open(os.path.join(log_dir, model_file_name,"env_args.yaml") , "w") as log_for_arg:
+        print(yaml.dump(env_args, log_for_arg))
         
     traj_dataset = D4RLTrajectoryDataset(big_list, context_len, leg_trans_pro=True)
     assert body_dim == traj_dataset.body_dim
