@@ -6,7 +6,7 @@ context_len: 20
 n_blocks: 3
 n_heads: 2
 cut: 0
-dataset: AMP #EBody4 #IPPOtest #IPPO8
+dataset: Short #AMP #EBody4 #IPPOtest #IPPO8
 dataset_dir: Integration_EAT/data_2/
 device: cuda:1
 dropout_p: 0.1
@@ -64,5 +64,5 @@ body_dim: 12
 run_name: 
 checkpoint: null
 experiment_name: null
-note: 利用新采集的AMP数据与更改之后的position计算方法顺便验证softmax的body会不会表现得更好
+note: 利用新采集的AMP数据与更改之后的position计算方法顺便验证多标签分类的body会不会表现得更好
 wandboff: false

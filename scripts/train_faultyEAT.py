@@ -183,11 +183,13 @@ def train(args):
                 drop_p=dropout_p,
                 state_mean=state_mean,
                 state_std=state_std,
-                use_softmax= True
+                use_surffix = 2 #这里考虑把softmax换成sigmoid来进行多标签分类1:softmax 2:sigmoid
                 # body_mean=body_mean,
                 # body_std=body_std
             ).to(device)
-        
+    
+    body_criterion = torch.nn.BCEWithLogitsLoss()
+    
     optimizer = torch.optim.AdamW(
                         model.parameters(),
                         lr=lr,
@@ -247,11 +249,11 @@ def train(args):
             body_target = body_target[:, int(context_len/2):]
             # body_preds = F.softmax(body_preds[:, int(context_len/2):].clamp(0.0,1.0), dim=-1)
             # body_target = F.softmax(body_target[:, int(context_len/2):], dim=-1)
-            
             # action_preds = action_preds.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             # action_target = action_target.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             #compute losses
             action_loss = F.mse_loss(action_preds, action_target, reduction='mean')
+            body_BCEloss = body_criterion(body_preds, body_target)
             # body_preds = torch.tanh(body_preds)
             # only consider non padded elements
             target_joints = torch.argmin(body, dim=-1).unsqueeze(2)
@@ -277,8 +279,10 @@ def train(args):
             # body_target = body_target.view(-1, body_dim)[traj_mask.view(-1,) > 0]
             body_loss = body_main_loss + body_adversary_loss 
             + F.cross_entropy(body_preds, body_target, reduction='mean')
+            # total_loss = (args["action_loss_w"] * action_loss 
+            #               + args["body_loss_w"] * body_loss).to(torch.float)
             total_loss = (args["action_loss_w"] * action_loss 
-                          + args["body_loss_w"] * body_loss).to(torch.float)
+                          + args["body_loss_w"] * body_BCEloss).to(torch.float)
             
             optimizer.zero_grad()
             total_loss.backward()
@@ -302,7 +306,7 @@ def train(args):
         inner_bar.reset()
         #end one epoch ^
         #=====================================================================================================
-        body_acu = True#记录body预测准确性
+        body_acu = False#记录body预测准确性
         if epoch % max(int(5000/num_updates_per_iter), 1) == 0:
             # evaluate action accuracy
             results = evaluate_on_env_batch_body(model = model, device=device, context_len=context_len, env=env, 

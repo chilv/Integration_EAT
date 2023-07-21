@@ -5,13 +5,11 @@ import pdb
 import random
 import time
 import pickle
-from regex import F
 import torch
 import numpy as np
 from torch.utils.data import Dataset
 
 # from d4rl_infos import REF_MIN_SCORE, REF_MAX_SCORE, D4RL_DATASET_STATS
-import imageio
 from tqdm import tqdm
 
 # from legged_gym.utils import Logger
@@ -329,7 +327,7 @@ def evaluate_on_env_batch_body(
     upper_bound = 0, 
     prompt_policy=None,
     body_pre:bool = False,
-    body_gt:bool = False,
+    body_gt:bool = True,
     body_pre_acu = False
 ):
     """
@@ -409,9 +407,8 @@ def evaluate_on_env_batch_body(
             total_timesteps += 1
             states[:, t, :] = running_state
             states[:, t, :] = (states[:, t, :] - state_mean) / state_std
-            if body_gt:
+            if body_gt:#给予真实body的值
                 bodys[:, t, :] = running_body
-
             if t < context_len:
                 _, act_preds, _ = model.forward(
                     timesteps[:, :context_len],
@@ -453,8 +450,7 @@ def evaluate_on_env_batch_body(
                     body=bodys[:, t - context_len + 1 : t + 1],
                 )
                 act = act_preds[:, -1].detach()
-                body_preds = body_preds
-                if((
+                if((    #! 这一部分body预测的eval问题很大，注意后续整改
                     torch.argmin(body_preds[:,10:], dim=-1).mode(dim = -1)[0]
                         - torch.argmin(torch.nn.functional.softmax(running_body, dim=-1), dim=-1)
                         ).nonzero().shape[0] 
@@ -484,6 +480,148 @@ def evaluate_on_env_batch_body(
     results["eval/avg_ep_len"] = np.mean(dones)
     if body_pre_acu:
         results["eval/total_pre_rate"] = total_pre / (max_test_ep_len-20)
+    return results
+
+def evaluate_bodypre(
+    model,
+    run_model,
+    device,
+    context_len,
+    env,
+    eval_batch_size=10,
+    max_test_ep_len=1000,
+    state_mean=None,
+    state_std=None,
+):
+    """
+    这个函数写来纯纯粹粹为了测试torques预测准不准
+    ------------------
+    model：待测试模型
+    test_model: 纯粹用来让机器狗走起来的
+    device：测试硬件号
+    context_len：模型上下文长度
+    env：测试环境
+    body_target：目前除了用来提供bodydim外暂时无用
+    rtg_scale：无用 待删除
+    num_eval_ep=10：测试所用环境数量
+    max_test_ep_len=1000：每个环境中测试长度
+    state_mean=None：如其名
+    state_std=None：如其名
+    """
+    eval_batch_size = eval_batch_size  # required for forward pass
+
+    results = {}
+    total_reward = 0
+    total_timesteps = 0
+    state_dim = env.cfg.env.num_observations
+    act_dim = env.cfg.env.num_actions
+    body_dim = 12
+
+    assert state_mean is not None
+    if not torch.is_tensor(state_mean):
+        state_mean = torch.from_numpy(state_mean).to(device)
+    else:
+        state_mean = state_mean.to(device)
+
+    assert state_std is not None
+    if not torch.is_tensor(state_std):
+        state_std = torch.from_numpy(state_std).to(device)
+    else:
+        state_std = state_std.to(device)
+
+    timesteps = torch.arange(start=0, end=max_test_ep_len, step=1)
+    timesteps = timesteps.repeat(eval_batch_size, 1).to(device)
+
+    model.eval()
+    run_model.eval()
+    # logger = Logger(env.dt)
+
+    with torch.no_grad():
+        actions = torch.zeros(
+            (eval_batch_size, max_test_ep_len, act_dim),
+            dtype=torch.float32,
+            device=device,
+        )
+        states = torch.zeros(
+            (eval_batch_size, max_test_ep_len, state_dim),
+            dtype=torch.float32,
+            device=device,
+        )  # Here we assume that obs = state !!
+
+        bodys = torch.ones(
+            (eval_batch_size, max_test_ep_len, body_dim),
+            dtype=torch.float32,
+            device=device,
+        )
+        state_mean, state_std =( run_model.state_mean).to(device), (run_model.state_std).to(device)
+        
+        running_state, _ = env.reset()
+
+        total_rewards = np.zeros(eval_batch_size)
+        dones = np.zeros(eval_batch_size)
+        total_pre = 0
+        # 创建形状为4096*12的全1张量，用于body状态
+        running_bodies = torch.ones(eval_batch_size, body_dim, device=device)
+        # 随机选择在第80~120步之间产生随机坏损的步骤
+        faulty_step = torch.randint(80, 120, size=(eval_batch_size,), device=device)
+        # 创建帕雷托分布对象，其中alpha是形状参数，scale是尺度参数           
+        pareto_dist = torch.distributions.Pareto( scale= torch.tensor(0.05),  alpha= torch.tensor(2.0))#
+        
+        for t in range(max_test_ep_len):
+            faulty_index = torch.randint(0,body_dim, (1,))
+            mask = (t == faulty_step)
+            if mask.any():
+                # 生成从帕雷托分布中采样的随机数
+                pareto_sample = pareto_dist.sample((sum(mask),)).clamp(0, 1.0).to(device)
+                running_bodies[mask, faulty_index] = pareto_sample
+            # 坏损生成完毕，进入主循环,更新obs与body值
+            bodys[:,t,:] = running_bodies
+            
+            total_timesteps += 1
+            states[:, t, :] = running_state
+            states[:, t, :] = (states[:, t, :] - state_mean) / state_std
+
+            start_t = 0 if t < context_len else t -context_len + 1 
+            end_t = context_len if t < context_len else t + 1
+            _, act_preds, _ = run_model.forward(
+                                                    timesteps[:, start_t : end_t],
+                                                    states[:, start_t : end_t],
+                                                    actions[:, start_t : end_t],
+                                                    body=bodys[:, start_t : end_t],
+                                                )
+            act = act_preds[:, t if t<context_len else -1].detach()
+            
+            states1 = states[:,start_t : end_t,:24]
+            actions1 = (actions[:,start_t : end_t]  * env.action_scale + env.default_dof_pos.unsqueeze(dim=1).repeat(1, 20, 1))       # B x T x act_dim
+            states_in = torch.cat((states1, actions1), dim=2)
+            body_preds = model.forward(
+                                            timesteps[:, start_t : end_t],
+                                            states_in,
+                                            actions[:, start_t : end_t],
+                                            body=bodys[:, start_t : end_t]
+                                        )
+            score = 0
+            if t>20:
+                for i in range(body_dim):
+                    score += ((body_preds[:,-1, i]<0.5) & (running_bodies[:,i] < 1)).sum()
+                    score -= ((body_preds[:,-1, i]>0.5) & (running_bodies[:,i] < 1)).sum()
+            
+            actions[:, t] = act
+            running_state, _, running_reward, done, infos = env.step(
+                act.cpu(), bodys[:,-1]
+            )           
+
+            # total_reward += np.sum(score)
+            total_rewards += (
+                running_reward.detach().cpu().numpy()
+                * (done == 0).detach().cpu().numpy()
+            )
+            dones += ~done.detach().cpu().numpy()
+            
+    results["eval/avg_reward"] = score
+    results["eval/avg_ep_len"] = np.mean(dones)
+    # if body_pre_acu:
+    #     results["eval/total_pre_rate"] = total_pre / (max_test_ep_len-20)
     return results
 
 def evaluate_torques(
@@ -539,7 +677,6 @@ def evaluate_torques(
     model.eval()
     run_model.eval()
     # logger = Logger(env.dt)
-    
 
     with torch.no_grad():
         actions = torch.zeros(
@@ -686,39 +823,29 @@ class D4RLTrajectoryDataset(Dataset):
         elif type(dataset_path) == list:
             self.trajectories = dataset_path
 
-        if bc:
-            print("CONCATENATE BODY INTO STATE ..........")
-            for traj in tqdm(self.trajectories):
-                traj["observations"] = np.concatenate(
-                    [traj["body"], traj["observations"]], axis=1
-                )
-                traj["next_observations"] = np.concatenate(
-                    [traj["body"], traj["next_observations"]], axis=1
-                )
-
         # calculate min len of traj, state mean and variance
         # and returns_to_go for all traj
         min_len = 10**6
         states = []
         bodies = []
         # pdb.set_trace()
-        for traj in self.trajectories:
-            traj_len = traj["observations"].shape[0]
-            min_len = min(min_len, traj_len)
-            states.append(traj["observations"])
+        for traj in self.trajectories:  #每个traj都是单个环境的一条数据,self.trajectories是并列拼在一起的一条数据长度不一定相同
+            traj_len = traj["observations"].shape[0]    #该环境收集数据的长度
+            min_len = min(min_len, traj_len)    #一时之间没太明白为啥有个10**6的上限，怕轨迹太长吗
+            states.append(traj["observations"]) #将每个环境的单条数据中的obs拼接在一起
             traj["returns_to_go"] = traj["body"]
-            bodies.append(traj["body"])
+            bodies.append(traj["body"])     #将每个环境的单条数据中的body拼接在一起
 
         # used for input normalization
-        states = np.concatenate(states, axis=0)
-        bodies = np.concatenate(bodies, axis=0)
+        states = np.concatenate(states, axis=0)         #这一步不会将state拼接吗，不会，真就只用在归一化上
+        # bodies = np.concatenate(bodies, axis=0)
         self.state_mean, self.state_std = (
             np.mean(states, axis=0),
             np.std(states, axis=0) + 1e-6,
         )
 
         # normalize states
-        for traj in self.trajectories:
+        for traj in self.trajectories:#! 再load时已经做过了
             traj["observations"] = (
                 traj["observations"] - self.state_mean
             ) / self.state_std
@@ -741,7 +868,7 @@ class D4RLTrajectoryDataset(Dataset):
     def __len__(self):
         return len(self.trajectories)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx): #任选一条轨迹
         traj = self.trajectories[idx]
         traj_len = traj["observations"].shape[0]
 
@@ -1054,7 +1181,10 @@ def get_dataset_config(dataset):
         datafile = "Trajectory_AMP"
         i_magic_list = [f"PPO_AMP_{x}" for x in range(12)]
         eval_body_vec = [1 for _ in range(12)]
-        
+    if dataset == "Short":
+        datafile = "Trajectory_Short_0"
+        i_magic_list = [f"ShortTraj_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
         
     if dataset == "faulty":
         datafile = "P20F10000-vel0.5-v0"

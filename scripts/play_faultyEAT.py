@@ -1,29 +1,19 @@
-import argparse
-from argparse import Namespace
 import os
-import pickle
 import inspect
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
 os.sys.path.insert(0, parentdir)
-from datetime import datetime
 
 import numpy as np
 
 from legged_gym.envs import *
 
 import torch
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
-from collections import deque
 from legged_gym import LEGGED_GYM_ROOT_DIR
-from model import LeggedTransformerPro, LeggedTransformerBody
+from model import LeggedTransformerPro, LeggedTransformerBody2, LeggedTransformerBody
 from legged_gym.utils import  get_args, task_registry, Logger
 import pdb
-from collections import Counter
 import yaml
-
-from tqdm import trange, tqdm
 
 def play(model_name, faulty_tag = -1, flawed_rate = 1, MIN_EVAL_ENVs = 50):
     
@@ -34,6 +24,7 @@ def play(model_name, faulty_tag = -1, flawed_rate = 1, MIN_EVAL_ENVs = 50):
     act_dim = args["act_dim"]
     body_dim = args["body_dim"]
     ##-----
+    args["device"] = "cuda:0"
 
     context_len = args["context_len"]      # K in decision transformer
     n_blocks = args["n_blocks"]            # num of transformer blocks
@@ -84,7 +75,7 @@ def play(model_name, faulty_tag = -1, flawed_rate = 1, MIN_EVAL_ENVs = 50):
     
     #====================================================================================
     # prepare algs
-    model = LeggedTransformerBody(#! 原为LeggedTransformerPro，发现改为Body后狗直接不走
+    model = LeggedTransformerBody2(#! 原为LeggedTransformerPro，发现改为Body后狗直接不走
             body_dim=body_dim,
             state_dim=state_dim,
             act_dim=act_dim,
@@ -99,21 +90,14 @@ def play(model_name, faulty_tag = -1, flawed_rate = 1, MIN_EVAL_ENVs = 50):
             # body_std=body_std
             ).to(device)
     model.load_state_dict(torch.load(
-        os.path.join(model_path,"model_best.pt"), map_location = "cuda:0"
+        os.path.join(model_path,"model2000epoch.pt"), map_location = args["device"]
     ))
     model.eval()
     #====================================================================================
     
         
     #====================================================================================
-    ##eval pre
-    #init visualize
-    # camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
-    # camera_vel = np.array([1., 1., 0.])
-    # camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
-    
-    # img_idx = 0
-    
+    ##eval pre    
     if faulty_tag <3:#leg0
         camera_position = np.array([1.5,1.5,.5])
         camera_vel = np.array([.4, 0., 0.])
@@ -415,7 +399,7 @@ if __name__ == "__main__":
     
     RECORD_FRAMES = False
     MOVE_CAMERA = True
-    model = "EAT_runs/EAT_given_body_IPPO_02/"
+    model = "EAT_runs/AMP_position_softmax_AMP_07/"
     play(model_name = model, faulty_tag = 11, flawed_rate = 0, MIN_EVAL_ENVs=1)
     # model = "EAT_runs/EAT_FLAWEDPPO_00/"
     # play_withbody(args, 11, 0)

@@ -77,7 +77,7 @@ class Block(nn.Module):
                 nn.Linear(h_dim, 4*h_dim),
                 nn.GELU(),
                 nn.Linear(4*h_dim, h_dim),
-                nn.Dropout(drop_p),
+                nn.Dropout(drop_p, inplace=True),
             )
         self.ln1 = nn.LayerNorm(h_dim)
         self.ln2 = nn.LayerNorm(h_dim)
@@ -530,9 +530,9 @@ class LeggedTransformerBody(nn.Module):
         return state_preds, action_preds, body_preds
     
 class LeggedTransformerBody2(nn.Module):
-    #和LeggedTransformerBody2的区别就在于是否使用softmax限制body的输出
+    #和LeggedTransformerBody2的区别就在于是否使用softmax或者sigmoid限制body的输出,同时timestep也改成局部计算方式
     def __init__(self, body_dim, state_dim, act_dim, n_blocks, h_dim, context_len,
-                 n_heads, drop_p, max_timestep=4096, state_mean=None, state_std=None, body_mean=None, body_std=None, use_softmax=False):
+                 n_heads, drop_p, max_timestep=4096, state_mean=None, state_std=None, body_mean=None, body_std=None, use_surffix=0):
         super().__init__()
 
         self.body_dim = body_dim
@@ -564,7 +564,12 @@ class LeggedTransformerBody2(nn.Module):
         # use_body_softmax = False # True for softmax bodies
 
         ### prediction heads
-        self.predict_body = nn.Sequential(*([nn.Linear(h_dim, body_dim)] + ([nn.Softmax()] if use_softmax else []))) 
+        surffix = []
+        if use_surffix == 1:
+            surffix = [nn.Softmax()]
+        elif use_surffix == 2:
+            surffix = [nn.Sigmoid()]
+        self.predict_body = nn.Sequential(*([nn.Linear(h_dim, body_dim)] + surffix)) 
         self.predict_state = torch.nn.Linear(h_dim, state_dim)
         self.predict_action = nn.Sequential(
             *([nn.Linear(h_dim, act_dim)] + ([nn.Tanh()] if use_action_tanh else []))
@@ -726,6 +731,145 @@ class LeggedTransformerTorq(nn.Module):
         
         return torq_pre
     
+class LeggedTransformerMultiLabel(nn.Module):
+    #这个用来写多标签的预测
+    def __init__(self, body_dim, state_dim, act_dim, n_blocks, h_dim, context_len,
+                 n_heads, drop_p, state_mean=None, state_std=None, body_mean=None, body_std=None, use_surffix=False):
+        super().__init__()
+
+        self.body_dim = body_dim
+        self.state_dim = state_dim
+        self.act_dim = act_dim
+        self.h_dim = h_dim
+
+        ### transformer blocks
+        input_seq_len = 3 * context_len
+        blocks = [Block(h_dim, input_seq_len, n_heads, drop_p) for _ in range(n_blocks)]
+        self.transformer = nn.Sequential(*blocks)
+
+        ### projection heads (project to embedding)
+        self.embed_ln = nn.LayerNorm(h_dim)
+        self.embed_timestep = nn.Embedding(context_len, h_dim)
+        # self.embed_body = torch.nn.Linear(body_dim, h_dim)
+        self.embed_state = torch.nn.Linear(state_dim, h_dim)
+
+        # continuous actions
+        # self.embed_action = torch.nn.Linear(act_dim, h_dim)
+        
+        #! 此处根据余琛学长意见去掉最后一层的action，原本这一层会让他的机器狗在实机上表现得更好 又改成true试一下
+        use_action_tanh = False # True for continuous actions
+        # use_body_softmax = False # True for softmax bodies
+
+        ### prediction heads
+        surffix = []
+        if use_surffix == 1:
+            surffix = [nn.Softmax()]
+        elif use_surffix == 2:
+            surffix = [nn.Sigmoid()]
+        self.predict_body = nn.Sequential(*([nn.Linear(h_dim, body_dim)] + surffix))  
+        self.predict_state = torch.nn.Linear(h_dim, state_dim)
+        self.predict_action = nn.Sequential(
+            *([nn.Linear(h_dim, act_dim)] + ([nn.Tanh()] if use_action_tanh else []))
+        )
+
+        if state_mean is not None:
+            self.state_mean = torch.tensor(state_mean)
+            self.state_std = torch.tensor(state_std)
+        
+        if body_mean is not None:
+            self.body_mean = torch.tensor(body_mean)
+            self.body_std = torch.tensor(body_std)
+
+
+    def forward(self, timesteps, states, actions, body):
+        B, T, _ = states.shape
+        
+        #! 这里试图按照我的理解重新初始化position encoding的操作
+        timesteps = torch.arange(start=0, end=T, step=1)
+        timesteps = timesteps.repeat(B, 1).to(states.device)    #全部是0~20的循环
+        #! ----------------------
+
+        time_embeddings = self.embed_timestep(timesteps)
+
+        # time embeddings are treated similar to positional embeddings
+        state_embeddings = self.embed_state(states) + time_embeddings
+
+        h = self.embed_ln(state_embeddings)
+
+        # transformer and prediction
+        h = self.transformer(h)
+        
+        body_preds = self.predict_body(h)     # predict next body given s
+        
+        return body_preds
+    
+class LeggedTransformerMultiOutput(nn.Module):
+    #这个用来写多标签的预测
+    def __init__(self, body_dim, state_dim, act_dim, n_blocks, h_dim, context_len,
+                 n_heads, drop_p, state_mean=None, state_std=None, body_mean=None, body_std=None, use_surffix=False):
+        super().__init__()
+
+        self.body_dim = body_dim
+        self.state_dim = state_dim
+        self.act_dim = act_dim
+        self.h_dim = h_dim
+
+        ### transformer blocks
+        input_seq_len = 3 * context_len
+        blocks = [Block(h_dim, input_seq_len, n_heads, drop_p) for _ in range(n_blocks)]
+        self.transformer = nn.Sequential(*blocks)
+
+        ### projection heads (project to embedding)
+        self.embed_ln = nn.LayerNorm(h_dim)
+        self.embed_timestep = nn.Embedding(context_len, h_dim)
+        # self.embed_body = torch.nn.Linear(body_dim, h_dim)
+        self.embed_state = torch.nn.Linear(state_dim, h_dim)
+
+        # continuous actions
+        # self.embed_action = torch.nn.Linear(act_dim, h_dim)
+        
+        #! 此处根据余琛学长意见去掉最后一层的action，原本这一层会让他的机器狗在实机上表现得更好 又改成true试一下
+        use_action_tanh = False # True for continuous actions
+        # use_body_softmax = False # True for softmax bodies
+
+        ### prediction heads
+        self.predict_body = nn.ModuleList([nn.Linear(h_dim, 1) for _ in range(body_dim)])
+        self.predict_state = torch.nn.Linear(h_dim, state_dim)
+        self.predict_action = nn.Sequential(
+            *([nn.Linear(h_dim, act_dim)] + ([nn.Tanh()] if use_action_tanh else []))
+        )
+
+        if state_mean is not None:
+            self.state_mean = torch.tensor(state_mean)
+            self.state_std = torch.tensor(state_std)
+        
+        if body_mean is not None:
+            self.body_mean = torch.tensor(body_mean)
+            self.body_std = torch.tensor(body_std)
+
+
+    def forward(self, timesteps, states, actions, body):
+        B, T, _ = states.shape
+        
+        #! 这里试图按照我的理解重新初始化position encoding的操作
+        timesteps = torch.arange(start=0, end=T, step=1)
+        timesteps = timesteps.repeat(B, 1).to(states.device)    #全部是0~20的循环
+        #! ----------------------
+        time_embeddings = self.embed_timestep(timesteps)
+
+        # time embeddings are treated similar to positional embeddings
+        state_embeddings = self.embed_state(states) + time_embeddings
+
+        h = self.embed_ln(state_embeddings)
+
+        # transformer and prediction
+        h = self.transformer(h)
+        
+        body_preds = [layer(h) for layer in self.predict_body]     # predict next body given s
+        
+        return body_preds
+    
+
 class MLPBCModel(nn.Module):
     
     """
