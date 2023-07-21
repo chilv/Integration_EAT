@@ -16,7 +16,7 @@
 #wandb生成的
 /wandb/
 #上真机测试用的配置
-/real_robot_eat/
+#/real_robot_eat/
 
 #数据分布图
 /tools/traj_analyse/
@@ -29,3 +29,8 @@
 evals/
 */*eval*/
 *.csv
+
+#一些测试
+*EAT_test/
+*TBlog/
+*analyse*
