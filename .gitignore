@@ -30,4 +30,4 @@ data_2
 # /tools/EAT_test/
 
 #tools里所有东西都是自己做测试用的
-scripts/tools/
+scripts/tools/*
