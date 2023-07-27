@@ -492,6 +492,7 @@ def evaluate_bodypre(
     max_test_ep_len=1000,
     state_mean=None,
     state_std=None,
+    test_context_len = 20,#context length for test model
 ):
     """
     这个函数写来纯纯粹粹为了测试torques预测准不准
@@ -509,7 +510,6 @@ def evaluate_bodypre(
     state_std=None：如其名
     """
     eval_batch_size = eval_batch_size  # required for forward pass
-
     results = {}
     total_reward = 0
     total_timesteps = 0
@@ -581,18 +581,20 @@ def evaluate_bodypre(
             states[:, t, :] = running_state
             states[:, t, :] = (states[:, t, :] - state_mean) / state_std
 
-            start_t = 0 if t < context_len else t -context_len + 1 
-            end_t = context_len if t < context_len else t + 1
+            start_t = 0 if t < test_context_len else t -test_context_len + 1 
+            end_t = test_context_len if t < test_context_len else t + 1
             _, act_preds, _ = run_model.forward(
                                                     timesteps[:, start_t : end_t],
                                                     states[:, start_t : end_t],
                                                     actions[:, start_t : end_t],
                                                     body=bodys[:, start_t : end_t],
                                                 )
-            act = act_preds[:, t if t<context_len else -1].detach()
+            act = act_preds[:, t if t < test_context_len else -1].detach()
             
-            states1 = states[:,start_t : end_t,:24]
-            actions1 = (actions[:,start_t : end_t]  * env.action_scale + env.default_dof_pos.unsqueeze(dim=1).repeat(1, 20, 1))       # B x T x act_dim
+            start_t = 0 if t < context_len else t -context_len + 1 
+            end_t = context_len if t < context_len else t + 1
+            states1 = states[:,start_t : end_t,:12]
+            actions1 = (actions[:,start_t : end_t]  * env.action_scale + env.default_dof_pos.unsqueeze(dim=1).repeat(1, context_len, 1))       # B x T x act_dim
             states_in = torch.cat((states1, actions1), dim=2)
             body_preds = model.forward(
                                             timesteps[:, start_t : end_t],
@@ -601,10 +603,10 @@ def evaluate_bodypre(
                                             body=bodys[:, start_t : end_t]
                                         )
             score = 0
-            if t>20:
+            if t>context_len:   #输入有效数据大于context_len时才进行评估
                 for i in range(body_dim):
-                    score += ((body_preds[:,-1, i]<0.5) & (running_bodies[:,i] < 1)).sum()
-                    score -= ((body_preds[:,-1, i]>0.5) & (running_bodies[:,i] < 1)).sum()
+                    score += ((body_preds[:,-1, i]<0.4) & (running_bodies[:,i] < 1)).sum()
+                    score -= ((body_preds[:,-1, i]>0.8) & (running_bodies[:,i] < 1)).sum()
             
             actions[:, t] = act
             running_state, _, running_reward, done, infos = env.step(
@@ -1185,7 +1187,11 @@ def get_dataset_config(dataset):
         datafile = "Trajectory_Short_0"
         i_magic_list = [f"ShortTraj_{x}" for x in range(12)]
         eval_body_vec = [1 for _ in range(12)]
-        
+    if dataset == "Short2":
+        datafile = "Trajectory_Short_2"
+        i_magic_list = [f"ShortTraj_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]    
+    
     if dataset == "faulty":
         datafile = "P20F10000-vel0.5-v0"
         i_magic_list = [

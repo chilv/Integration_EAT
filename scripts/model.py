@@ -18,6 +18,24 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class Positional_Encoding(nn.Module):
+    def __init__(self, d_model, max_len=5000):
+        super().__init__()
+        self.d_model = d_model
+        self.max_len = max_len
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2, dtype=torch.float) * 
+                             (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term) # even indices
+        pe[:, 1::2] = torch.cos(position * div_term) # odd indices
+        pe = pe.unsqueeze(0) # (1, max_len, d_model)
+        self.register_buffer('pe', pe) # (max_len, d_model)
+
+    def forward(self, x):
+        # x: (B, T, D) Inputs are feature embeddings.
+        return x + self.pe[:, :x.size(1)].repeat(x.size(0), 1, 1) # (B, T, D)
 
 class MaskedCausalAttention(nn.Module):
     def __init__(self, h_dim, max_T, n_heads, drop_p):
@@ -750,6 +768,7 @@ class LeggedTransformerMultiLabel(nn.Module):
         ### projection heads (project to embedding)
         self.embed_ln = nn.LayerNorm(h_dim)
         self.embed_timestep = nn.Embedding(context_len, h_dim)
+        self.positional_encoding = Positional_Encoding(h_dim, context_len)
         # self.embed_body = torch.nn.Linear(body_dim, h_dim)
         self.embed_state = torch.nn.Linear(state_dim, h_dim)
 
@@ -785,14 +804,15 @@ class LeggedTransformerMultiLabel(nn.Module):
         B, T, _ = states.shape
         
         #! 这里试图按照我的理解重新初始化position encoding的操作
-        timesteps = torch.arange(start=0, end=T, step=1)
-        timesteps = timesteps.repeat(B, 1).to(states.device)    #全部是0~20的循环
+        # timesteps = torch.arange(start=0, end=T, step=1)
+        # timesteps = timesteps.repeat(B, 1).to(states.device)    #全部是0~20的循环
         #! ----------------------
 
-        time_embeddings = self.embed_timestep(timesteps)
+        # time_embeddings = self.embed_timestep(timesteps)
 
         # time embeddings are treated similar to positional embeddings
-        state_embeddings = self.embed_state(states) + time_embeddings
+        # state_embeddings = self.embed_state(states) + time_embeddings
+        state_embeddings = self.positional_encoding(self.embed_state(states))
 
         h = self.embed_ln(state_embeddings)
 
