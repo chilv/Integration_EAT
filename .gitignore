@@ -5,7 +5,7 @@
 #忽略筛选后的模型们
 /models/
 #忽略采集的数据集
-/data/
+/data*/
 #忽略EAT采集的数据集
 /EAT_runs*/
 /Tert_runs/
