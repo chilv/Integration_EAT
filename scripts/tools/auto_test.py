@@ -183,7 +183,7 @@ def test_EAT(args, env, EAT_model, faulty_tag = -1, flawed_rate = 1, pred_body =
     return results['eval/avg_reward'], results['eval/avg_ep_len']
 
 if __name__ == '__main__':
-    with open("./Integration_EAT/scripts/args.yaml", "r") as fargs:
+    with open("./Integration_EAT/scripts/test_args.yaml", "r") as fargs:
         args = yaml.safe_load(fargs)
 
     device = torch.device(args["device"])  # setting flexible
@@ -210,9 +210,9 @@ if __name__ == '__main__':
     env_cfg.domain_rand.randomize_motor_strength = False
 
     # # Faster test
-    # env_cfg.commands.ranges.lin_vel_x = [-0.7,0.7]
-    # env_cfg.commands.ranges.lin_vel_y = [-0.5, 0.5]
-    # env_cfg.commands.ranges.ang_vel_yaw = [-1,1]
+    env_cfg.commands.ranges.lin_vel_x = [0, 1]
+    env_cfg.commands.ranges.lin_vel_y = [-0, 0]
+    env_cfg.commands.ranges.ang_vel_yaw = [-0.5, 0.5]
     # prepare environment
     env, _ = task_registry.make_env(name=env_args.task, args=env_args, env_cfg=env_cfg)
     
@@ -248,7 +248,7 @@ if __name__ == '__main__':
     #测试EAT======================================================================
     #loading EAT model
     # loading pre_record stds,means...
-    model_name = "EAT_Given_body_AMP_Teacher_Position_Encoding_AMPPPO_04"
+    model_name = "EAT_NEW_URDF_NEWURDFSTEP_09"
     run_name = "EAT_runs_AMP"
     model_path = os.path.join(os.path.dirname(parentdir), run_name, model_name)
     task_args = {}
@@ -283,7 +283,7 @@ if __name__ == '__main__':
             state_std=args['state_std'],
             ).to(device)
     EAT_model.load_state_dict(torch.load(
-        os.path.join(model_path,"model_best.pt")
+        os.path.join(model_path,"model1000epoch.pt")
     , map_location=device))
     EAT_model.eval()
     

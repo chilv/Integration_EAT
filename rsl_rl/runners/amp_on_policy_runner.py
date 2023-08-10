@@ -104,13 +104,18 @@ class AMPOnPolicyRunner:
         
         _, _ = self.env.reset()
     
-    def learn(self, num_learning_iterations, init_at_random_ep_len=False, body_dim = 0, flawed_joint = -1, flawed_rate = 1):
+    def learn(self, num_learning_iterations, init_at_random_ep_len=False, body_dim = 0, flawed_joint = -1, flawed_rate = 1, body_latency = 0):
         # initialize writer
         if self.log_dir is not None and self.writer is None:
             self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
         if init_at_random_ep_len:
             self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
         bodies, joints = flaw_generation(self.env.num_envs, body_dim, flawed_joint, flawed_rate, device = self.device)
+
+        body_buffer = [bodies] * (body_latency+1)
+        length_body_buffer = body_latency + 1
+        cur_body_index = 0
+
         # print(bodies[:2], joints[:2])
         obs = self.env.get_observations()
         privileged_obs = self.env.get_privileged_observations()
@@ -134,9 +139,16 @@ class AMPOnPolicyRunner:
             # Rollout
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
-                    actions = self.alg.act(obs, critic_obs, amp_obs, bodies)
+                    actions = self.alg.act(obs, critic_obs, amp_obs, body_buffer[cur_body_index])
                     obs, privileged_obs, rewards, dones, infos, reset_env_ids, terminal_amp_states = self.env.step(actions, bodies)
+
                     bodies = step_body(bodies, joints, 0.004, 0.0005, 1)
+                    body_buffer[cur_body_index] = bodies
+                    cur_body_index += 1
+                    if cur_body_index == length_body_buffer:
+                        cur_body_index = 0
+                    # cur_body_index %= length_body_buffer
+
                     next_amp_obs = self.env.get_amp_observations()
 
                     critic_obs = privileged_obs if privileged_obs is not None else obs

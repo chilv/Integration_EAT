@@ -71,15 +71,16 @@ def disable_leg(actions, target:str ="joint", index:int = 2):
 def play(args, flawed_joint = -1, flawed_rate = 1):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 25)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 10)
     env_cfg.terrain.num_rows = 5
     env_cfg.terrain.num_cols = 5
     env_cfg.terrain.curriculum = False
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [0.0, 0.7]# 更改速度设置以防命令采样到0的情况    
-    env_cfg.commands.ranges.ang_vel_yaw = [-1, 1]
+    env_cfg.commands.ranges.lin_vel_x = [0.7, 0.7]# 更改速度设置以防命令采样到0的情况    
+    env_cfg.commands.ranges.ang_vel_yaw = [0.5, 0.5]
+    
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     obs = env.get_observations()
@@ -87,7 +88,7 @@ def play(args, flawed_joint = -1, flawed_rate = 1):
     train_cfg.runner.resume = True
     # train_cfg.runner.load_run = "strange"
     train_cfg.runner.load_run = "PPO_Models"
-    train_cfg.runner.checkpoint = 5
+    train_cfg.runner.checkpoint = flawed_joint
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy = ppo_runner.get_inference_policy(device=env.device)
     
@@ -119,7 +120,7 @@ def play(args, flawed_joint = -1, flawed_rate = 1):
     for i in range(2*int(env.max_episode_length)):
         actions = policy(obs.detach(),bodies)
         # actions = disable_leg(actions, target="none", index=2)#let one joint or leg be disabled
-        obs, _, rews, dones, infos = env.step(actions.detach(), flawed_joint = [flawed_joint], flawed_rate = flawed_rate)
+        obs, _, rews, dones, infos = env.step(actions.detach(), bodies)
         
         cur_reward_sum += rews
         new_ids = (dones > 0).nonzero(as_tuple=False)
@@ -134,9 +135,14 @@ def play(args, flawed_joint = -1, flawed_rate = 1):
                 filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames', f"{img_idx}.png")
                 env.gym.write_viewer_image_to_file(env.viewer, filename) 
                 img_idx += 1 
-        if MOVE_CAMERA: #TODO: 这里可以设定视角变换，后续学习一下
-            camera_position += camera_vel * env.dt
-            env.set_camera(camera_position, camera_position + camera_direction)
+        if MOVE_CAMERA:
+            lootat = env.root_states[9, :3]
+            # camara_position = lootat.detach().cpu().numpy() + [0, 1, 0.5]
+            camara_position = lootat.detach().cpu().numpy() + [0, -1, 0]
+            # camara_position = lootat.detach().cpu().numpy() + [-1, 0, 0]
+            env.set_camera(camara_position, lootat)
+            # camera_position += camera_vel * env.dt
+            # env.set_camera(camera_position, camera_position + camera_direction)
 
         if i < stop_state_log:
             logger.log_states(
@@ -172,6 +178,6 @@ def play(args, flawed_joint = -1, flawed_rate = 1):
 if __name__ == '__main__':
     EXPORT_POLICY = True
     RECORD_FRAMES = False
-    MOVE_CAMERA = False
+    MOVE_CAMERA = True
     args = get_args()
-    play(args, 5, 0)
+    play(args, 4, 1)

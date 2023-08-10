@@ -48,7 +48,8 @@ def train(args):
     embed_dim = args["embed_dim"]          # embedding (hidden) dim of transformer
     n_heads = args["n_heads"]              # num of transformer heads
     dropout_p = args["dropout_p"]          # dropout probability
-    
+    position_encoding_length = args.get("position_encoding_length", 4096)  # length of position encoding
+
     args["wandboff"] = True if "test" in args["dataset"] else args["wandboff"]
 
     datafile, i_magic_list, eval_body_vec, eval_env = get_dataset_config(args["dataset"])
@@ -71,11 +72,10 @@ def train(args):
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.commands.ranges.lin_vel_x = [-0.7,0.7]
-    # env_cfg.commands.ranges.lin_vel_y = [-0.5, 0.5]
-    env_cfg.commands.ranges.ang_vel_yaw = [-1,1]
+    env_cfg.commands.ranges.lin_vel_x = [0.0,1]
+    env_cfg.commands.ranges.lin_vel_y = [-0, 0]
+    env_cfg.commands.ranges.ang_vel_yaw = [-0.5,0.5]
 
-    env_cfg.commands.ranges.lin_vel_y = [0, 0]
     # env_cfg.commands.ranges.lin_vel_x = [0.3, 0.7]
     
     env, _ = task_registry.make_env(name = env_args.task, args = env_args, env_cfg = env_cfg)
@@ -203,6 +203,7 @@ def train(args):
             drop_p=dropout_p,
             state_mean=state_mean,
             state_std=state_std,
+            position_encoding_length=position_encoding_length,
         ).to(device)
     
     if args["model_dir"] is not None:
@@ -381,7 +382,7 @@ def train(args):
         #end one eval & log
         #========================================================================
 
-        if epoch % 1000 == 0:
+        if epoch % 100 == 0:
             torch.save(model.state_dict(), save_model_path+str(epoch)+"epoch.pt")
             traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
             traced_script_module.save(save_model_path+str(epoch)+"epoch.jit")

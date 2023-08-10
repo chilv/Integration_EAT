@@ -126,14 +126,15 @@ class A1AMPCfg( LeggedRobotCfg ):
 
     class asset( LeggedRobotCfg.asset ):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/a1/urdf/a1.urdf'
-        name = "a1"
         foot_name = "foot"
         penalize_contacts_on = ["thigh", "calf"]
+        terminate_after_contacts_on = ["base"]
         # terminate_after_contacts_on = [
         #     "base", "FL_calf", "FR_calf", "RL_calf", "RR_calf",
         #     "FL_thigh", "FR_thigh", "RL_thigh", "RR_thigh"]
         # self_collisions = 0 # 1 to disable, 0 to enable...bitwise filter
-        terminate_after_contacts_on = ["base"]
+        # penalize_contacts_on = ["thigh", "calf", "base"]
+        # terminate_after_contacts_on = []
         self_collisions = 1  # 1 to disable, 0 to enable...bitwise filter
 
     class domain_rand:
@@ -205,14 +206,14 @@ class A1AMPCfg( LeggedRobotCfg ):
             tracking_lin_vel = 1.0
             tracking_ang_vel = 0.5
             lin_vel_z = 0#-2.0
-            ang_vel_xy = 0#-0.05
-            orientation = 0#-2.0
-            torques = -0.0001
+            ang_vel_xy = -0.05 #0#-0.05
+            orientation = -2 #-0.005 #-2.0
+            torques = -0.00001
             dof_vel = -0.
             dof_acc = -2.5e-7
             base_height = -0.
-            feet_air_time =  1.0
-            collision = -0.1
+            feet_air_time = 1.0 # 1.0
+            collision = -0.5 #-0.1
             feet_stumble = -0.0
             action_rate = -0.01
             # dof_pos_dif = -0.1
@@ -221,20 +222,17 @@ class A1AMPCfg( LeggedRobotCfg ):
     class commands:
         # curriculum = False
         # max_curriculum = 1.
-        curriculum =    True
-        max_lin_vel_x_curriculum = 1.
-        max_lin_vel_y_curriculum = 0.2
+        curriculum =  True
+        min_lin_vel_x_curriculum = -0.05
+        max_lin_vel_x_curriculum = 1
+        max_lin_vel_y_curriculum = 0.0
         max_ang_vel_yaw_curriculum = 0.5
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10. # time before command are changed[s]
         heading_command = False # if true: compute ang vel command from heading error
         class ranges:
-            # lin_vel_x = [-1.0, 2.0] # min max [m/s]
-            # lin_vel_y = [-0.3, 0.3]   # min max [m/s]
-            # ang_vel_yaw = [-1.57, 1.57]    # min max [rad/s]
-            # heading = [-3.14, 3.14]
-            lin_vel_x = [-0.4, 0.4] # min max [m/s]
-            lin_vel_y = [-0.2, 0.2]   # min max [m/s]
+            lin_vel_x = [-0.05, 0.4] # min max [m/s]
+            lin_vel_y = [-0.0, 0.0]   # min max [m/s]
             ang_vel_yaw = [-0.2, 0.2]    # min max [rad/s]
             heading = [-3.14/4, 3.14/4]
 
@@ -261,3 +259,5 @@ class A1AMPCfgPPO( LeggedRobotCfgPPO ):
         amp_discr_hidden_dims = [1024, 512]
 
         min_normalized_std = [0.05, 0.02, 0.05] * 4
+
+  

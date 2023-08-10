@@ -475,7 +475,7 @@ class LeggedTransformerPro(nn.Module):
 
 class LeggedTransformerBody(nn.Module):
     def __init__(self, body_dim, state_dim, act_dim, n_blocks, h_dim, context_len,
-                 n_heads, drop_p, max_timestep=4096, state_mean=None, state_std=None, body_mean=None, body_std=None):
+                 n_heads, drop_p, max_timestep=4096, state_mean=None, state_std=None, body_mean=None, body_std=None, position_encoding_length = 4096):
         super().__init__()
 
         self.body_dim = body_dim
@@ -491,7 +491,7 @@ class LeggedTransformerBody(nn.Module):
 
         ### projection heads (project to embedding)
         self.embed_ln = nn.LayerNorm(h_dim)
-        self.positional_encoding = Positional_Encoding(h_dim, max_timestep)
+        self.positional_encoding = Positional_Encoding(h_dim, position_encoding_length)
         # self.embed_timestep = Positional_Encoding(h_dim, max_timestep)
         # self.embed_timestep = nn.Embedding(max_timestep, h_dim)
         self.embed_body = torch.nn.Linear(body_dim, h_dim)
@@ -729,8 +729,8 @@ class MLPBCModel(nn.Module):
         return actions[:,-1]
 
 class Model_Prediction(nn.Module):
-    def __init__(self, state_dim, body_dim, context_len=20, n_blocks=2, h_dim=128, 
-                 n_heads=1, drop_p=0.1, max_timestep=4096):
+    def __init__(self, state_dim, body_dim, context_len=100, n_blocks=3, h_dim=128, 
+                 n_heads=2, drop_p=0.1, max_timestep=4096):
         super().__init__()
 
         self.state_dim = state_dim
@@ -745,29 +745,25 @@ class Model_Prediction(nn.Module):
 
         ### projection heads (project to embedding)
         self.embed_ln = nn.LayerNorm(h_dim)
-        self.embed_timestep = nn.Embedding(max_timestep, h_dim)
+        self.position_encoding = Positional_Encoding(h_dim, max_timestep)
         self.embed_state = torch.nn.Linear(state_dim, h_dim)
         self.embed_action = torch.nn.Linear(body_dim, h_dim)
-        use_tanh = False # True for continuous actions
 
         ### prediction heads
         # self.predict_rtg = torch.nn.Linear(h_dim, 1)
-        self.predict_state = torch.nn.Linear(h_dim, state_dim)
-        self.pred_body = nn.Sequential(
-            *([nn.Linear(h_dim, body_dim)] + ([nn.Tanh()] if use_tanh else []))
-        )
+        self.pred_body = nn.Linear(h_dim, body_dim)
+        self.cls_body = nn.Linear(h_dim, body_dim)
 
 
-    def forward(self, timesteps, states, actions):
+    def forward(self, states, actions):
         # def forward(self, timesteps, states, actions, returns_to_go=None, body=None):
 
         B, T, _ = states.shape
 
-        time_embeddings = self.embed_timestep(timesteps)
 
         # time embeddings are treated similar to positional embeddings
-        state_embeddings = self.embed_state(states) + time_embeddings
-        action_embeddings = self.embed_action(actions) + time_embeddings
+        state_embeddings = self.position_encoding(self.embed_state(states))
+        action_embeddings = self.position_encoding(self.embed_action(actions))
         h = torch.stack(
             (state_embeddings, action_embeddings), dim=1
         ).permute(0, 2, 1, 3).reshape(B, 2 * T, self.h_dim)
@@ -780,7 +776,7 @@ class Model_Prediction(nn.Module):
         h = h.reshape(B, T, 2, self.h_dim).permute(0, 2, 1, 3)
         # get predictions
         body_preds = self.pred_body(h[:,1])  
-
+        body_cls = nn.Softmax(self.body_dim)(self.cls_body(h[:,0]))
         return body_preds
     
     def take_body(self, timesteps, states, actions):

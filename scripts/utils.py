@@ -425,28 +425,23 @@ def evaluate_Seperate_Body(
                 bodies[:, t, :] = running_body
 
             if t < context_len:
+                bodies[:,t] = running_body.detach()
                 _, act_preds, _ = model.forward(
-                    timesteps[:, :context_len],
                     states[:, :context_len],
                     actions[:, :context_len],
                     bodies=bodies[:, :context_len],
                 )
 
-                if prompt_policy is None:
-                    act = act_preds[:, t].detach()
-                else:
-                    act = prompt_policy(running_state.to(device))
+                act = act_preds[:, t].detach()
             else:
                 if body_pre:
                     body_preds = body_model.take_body(
-                        timesteps[:, t - context_len + 1 : t + 1],
                         states[:, t - context_len + 1 : t + 1],
                         actions[:,t-context_len+1:t+1])
                     
                     bodies[:, t] = body_preds[:, -1].detach()
                     
                 _, act_preds, _ = model.forward(
-                    timesteps[:, t - context_len + 1 : t + 1],
                     states[:, t - context_len + 1 : t + 1],
                     actions[:, t - context_len + 1 : t + 1],
                     bodies=bodies[:, t - context_len + 1 : t + 1],
@@ -470,7 +465,7 @@ def evaluate_Seperate_Body(
             )
             dones += ~done.detach().cpu().numpy()
 
-            running_body = step_body(running_body, joints, rate=0.004, threshold=0.004, upper_bound=0.5)
+            running_body = step_body(running_body, joints, rate=0.01, threshold=0.004)
 
     results["eval/avg_reward"] = np.mean(total_rewards)
     results["eval/avg_ep_len"] = np.mean(dones)
@@ -622,7 +617,7 @@ def evaluate_on_env_batch_body(
 
             dones += done.detach()
 
-            running_body = step_body(running_body, joints, rate=0.004, threshold=0.001)
+            running_body = step_body(running_body, joints, rate=0.004, threshold=0.0001, upper_bound=0.5)
 
     results["eval/avg_reward"] = torch.mean(total_rewards)
     results["eval/avg_ep_len"] = torch.mean(steps)
@@ -1091,6 +1086,20 @@ def get_dataset_config(dataset):
     if dataset == "AMP_PPO_latency30":
         datafile = "Trajectory_AMP_latency30"
         i_magic_list = [f"PPO_AMP_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+
+    if dataset == "New_URDF":
+        datafile = "New_URDF"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "New_URDF_Step":
+        datafile = "New_URDF_Step"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(12)]
+        eval_body_vec = [1 for _ in range(12)]
+
+    if dataset == "New_URDF_Step_2":
+        datafile = "New_URDF_Step_More"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(13)]
         eval_body_vec = [1 for _ in range(12)]
 
     if dataset == "faulty":

@@ -21,7 +21,7 @@ import numpy as np
 
 def count_traj(args):
 
-    args["dataset"] = "EBody3"
+    args["dataset"] = "New_URDF"
 
     datafile, i_magic_list, _, _ = get_dataset_config(args["dataset"])
 
@@ -41,10 +41,9 @@ def count_traj(args):
         with open(pkl, "rb") as f:
             thelist = pickle.load(f)
 
-        assert "body" in thelist[0]
         bodies = []
         for traj in thelist:
-            bodies.append(traj["body"])
+            bodies.append(traj["bodies"])
         body_vec.append(
             np.concatenate(bodies, axis=0).transpose()[
                 int(pkl.split(".")[0].split("_")[-1])
