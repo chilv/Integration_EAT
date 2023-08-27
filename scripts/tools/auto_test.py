@@ -32,7 +32,7 @@ for i in ["F", "B"]:
         for k in ["H", "K", "A"]:
             codename_list.append(j+i+k)
 
-ENV_NUMS = 1024  #测试环境数
+ENV_NUMS = 4096  #测试环境数
 
 def test_ppo(args, env, train_cfg, faulty_tag = -1, flawed_rate = 1):
     """在单次循环中
@@ -193,21 +193,22 @@ if __name__ == '__main__':
     env_args.task = args["task"]
     env_cfg, train_cfg = task_registry.get_cfgs(name=env_args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, ENV_NUMS)
+    env_cfg.env.num_envs = ENV_NUMS
     env_cfg.terrain.num_rows = 5
     env_cfg.terrain.num_cols = 5
     env_cfg.terrain.curriculum = False
-    env_cfg.noise.add_noise = False
-    env_cfg.domain_rand.randomize_friction = False
+    env_cfg.commands.curriculum = False
+    # env_cfg.noise.add_noise = False
+    # env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
     # env_cfg.commands.ranges.lin_vel_x = [0.0, 0.7]# 更改速度设置以防命令采样到0的情况    
-    env_cfg.domain_rand.randomize_action_latency = False
-    env_cfg.domain_rand.push_robots = False
-    env_cfg.domain_rand.randomize_gains = False
-    env_cfg.domain_rand.randomize_base_mass = False
-    env_cfg.domain_rand.randomize_link_mass = False
-    env_cfg.domain_rand.randomize_com_pos = False
-    env_cfg.domain_rand.randomize_motor_strength = False
+    # env_cfg.domain_rand.randomize_action_latency = False
+    # env_cfg.domain_rand.push_robots = False
+    # env_cfg.domain_rand.randomize_gains = False
+    # env_cfg.domain_rand.randomize_base_mass = False
+    # env_cfg.domain_rand.randomize_link_mass = False
+    # env_cfg.domain_rand.randomize_com_pos = False
+    # env_cfg.domain_rand.randomize_motor_strength = False
 
     # # Faster test
     env_cfg.commands.ranges.lin_vel_x = [0, 1]
@@ -248,7 +249,7 @@ if __name__ == '__main__':
     #测试EAT======================================================================
     #loading EAT model
     # loading pre_record stds,means...
-    model_name = "EAT_NEW_URDF_NEWURDFSTEP_09"
+    model_name = "EAT_Small_Damp_SMALLDAMPNOISENOPUSH_01"
     run_name = "EAT_runs_AMP"
     model_path = os.path.join(os.path.dirname(parentdir), run_name, model_name)
     task_args = {}
@@ -268,6 +269,7 @@ if __name__ == '__main__':
     embed_dim = task_args['embed_dim']          # embedding (hidden) dim of transformer 
     n_heads = task_args['n_heads']              # num of transformer heads
     dropout_p = task_args['dropout_p']          # dropout probability
+    position_encoding_length = task_args['position_encoding_length']
     device = torch.device(env_args.sim_device)
     pred_body = task_args.get('pred_body', True)
     EAT_model = LeggedTransformerBody(
@@ -281,9 +283,10 @@ if __name__ == '__main__':
             drop_p=dropout_p,
             state_mean=args['state_mean'], 
             state_std=args['state_std'],
+            position_encoding_length=position_encoding_length
             ).to(device)
     EAT_model.load_state_dict(torch.load(
-        os.path.join(model_path,"model1000epoch.pt")
+        os.path.join(model_path,"model_best.pt")
     , map_location=device))
     EAT_model.eval()
     
@@ -291,19 +294,25 @@ if __name__ == '__main__':
     file_path = os.path.join(os.path.dirname(parentdir), "evals", run_name, model_name)
     if not os.path.exists(file_path):
         os.makedirs(file_path)
-    file_name = "AMP_EAT_Given_body.csv"
+    file_name = "Returns.csv"
+    length_name = "Lens.csv"
     EAT_rows = np.arange(0.0, 1.0, 0.1)
     EAT_table = np.zeros((12,10))
+    len_table = np.zeros((12,10))
     for i in range(12):#12条断腿情况
         # for j in range (0, 0.8, 0.1):
         for j in EAT_rows:            
-            EAT_table[i, np.where(EAT_rows==j)], _ = test_EAT(args, env, EAT_model, i, j, pred_body)
+            EAT_table[i, np.where(EAT_rows==j)], len_table[i, np.where(EAT_rows==j)] = test_EAT(args, env, EAT_model, i, j, pred_body)
             # EAT_table[:,-1],_ = test_EAT(args, env, EAT_model, -1, 1) #测完好情况
             EAT_df = pd.DataFrame(EAT_table)
             EAT_df.index = codename_list
-            EAT_df.columns = np.arange(0.0, 1.0, 0.1)
+            EAT_df.columns =  [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
             EAT_res = EAT_df.to_csv(os.path.join(file_path, file_name), mode='w')
-    
+
+            df2 = pd.DataFrame(len_table)
+            df2.index = codename_list
+            df2.columns = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+            df2_res = df2.to_csv(os.path.join(file_path, length_name), mode = 'w')
     # np.savetxt(os.path.join(LEGGED_GYM_ROOT_DIR,"logs/fualty_EAT2.csv"), EAT_table, delimiter=',')    #弃用了
     #测试EAT结束===================================================================
     

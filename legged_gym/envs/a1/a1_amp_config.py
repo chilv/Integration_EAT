@@ -120,9 +120,9 @@ class A1AMPCfg( LeggedRobotCfg ):
         # decimation: Number of control action updates @ sim DT per policy DT
         decimation = 4
 
-    # class terrain( LeggedRobotCfg.terrain ):
-    #     mesh_type = 'plane'
-    #     measure_heights = False
+    class terrain( LeggedRobotCfg.terrain ):
+        mesh_type = 'plane'
+        measure_heights = False
 
     class asset( LeggedRobotCfg.asset ):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/a1/urdf/a1.urdf'
@@ -205,10 +205,10 @@ class A1AMPCfg( LeggedRobotCfg ):
             # termination = -0.0
             tracking_lin_vel = 1.0
             tracking_ang_vel = 0.5
-            lin_vel_z = 0#-2.0
+            lin_vel_z = -2.0
             ang_vel_xy = -0.05 #0#-0.05
             orientation = -2 #-0.005 #-2.0
-            torques = -0.00001
+            torques = -0.0001
             dof_vel = -0.
             dof_acc = -2.5e-7
             base_height = -0.
@@ -218,12 +218,33 @@ class A1AMPCfg( LeggedRobotCfg ):
             action_rate = -0.01
             # dof_pos_dif = -0.1
             # stand_still = -0.
+            action_magnitude = -0.3
+
+            # tracking_lin_vel = 1.0
+            # tracking_ang_vel = 0.5
+            # lin_vel_z = 0#-2.0
+            # ang_vel_xy = 0#-0.05
+            # orientation = 0#-2.0
+            # torques = -0.0001
+            # dof_vel = -0.
+            # dof_acc = -2.5e-7
+            # base_height = -0.
+            # feet_air_time =  1.0
+            # collision = -0.1
+            # feet_stumble = -0.0
+            # action_rate = -0.01
+            # action_magnitude = 0#-0.3
+            # dof_pos_dif = 0#-0.1
+            # # stand_still = -0.
+            # smoothness = 0#-0.01
+            # power = 0#-5.0e-4
+            # power_distribution = 0
 
     class commands:
         # curriculum = False
         # max_curriculum = 1.
         curriculum =  True
-        min_lin_vel_x_curriculum = -0.05
+        min_lin_vel_x_curriculum = -0.0
         max_lin_vel_x_curriculum = 1
         max_lin_vel_y_curriculum = 0.0
         max_ang_vel_yaw_curriculum = 0.5

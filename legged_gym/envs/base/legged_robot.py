@@ -604,7 +604,7 @@ class LeggedRobot(BaseTask):
                 (torch.mean(self.episode_sums["tracking_ang_vel"][env_ids]) / self.max_episode_length > 0.7 * \
                 self.reward_scales["tracking_ang_vel"]):
             self.command_ranges["lin_vel_x"][0] = np.clip(self.command_ranges["lin_vel_x"][0] - 0.1,
-                                                          -self.cfg.commands.max_lin_vel_x_curriculum, 0.)
+                                                          self.cfg.commands.min_lin_vel_x_curriculum, 0.)
             self.command_ranges["lin_vel_x"][1] = np.clip(self.command_ranges["lin_vel_x"][1] + 0.1, 0.,
                                                           self.cfg.commands.max_lin_vel_x_curriculum)
             self.command_ranges["lin_vel_y"][0] = np.clip(self.command_ranges["lin_vel_y"][0] - 0.1,
@@ -667,7 +667,7 @@ class LeggedRobot(BaseTask):
         # initialize some data used later on
         self.common_step_counter = 0
         self.extras = {}
-        self.noise_scale_vec = self._get_noise_scale_vec(self.cfg)
+        self.noise_scale_vec = self._get_noise_scale_vec(self.cfg).to(self.device)
         self.gravity_vec = to_torch(get_axis_params(-1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
         self.forward_vec = to_torch([1., 0., 0.], device=self.device).repeat((self.num_envs, 1))
         self.torques = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
@@ -1138,3 +1138,7 @@ class LeggedRobot(BaseTask):
     def _reward_feet_contact_forces(self):
         # penalize high contact forces
         return torch.sum((torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1) -  self.cfg.rewards.max_contact_force).clip(min=0.), dim=1)
+    
+    def _reward_action_magnitude(self):
+        return torch.sum(torch.square(torch.maximum(torch.abs(self.actions[:,[0,3,6,9]]) - 1.0,torch.zeros_like(self.actions[:,[0,3,6,9]]))), dim=1)
+        # return torch.sum(torch.square(self.actions[:, [0, 3, 6, 9]]), dim=1)

@@ -214,7 +214,8 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
     # dropout_p = 0.1          # dropout probability
 
     print("loading pre_record stds,means...")
-    model_name = "EAT_NEW_URDF_NEWURDFSTEP_09"
+    model_name = "EAT_Small_Damp_SMALLDAMPNEWREWARD_03"
+    # model_name = "EAT_Mix_DAMP_MIXDAMP_00"
     run_name = "EAT_runs_AMP"
     model_path = os.path.join(os.path.dirname(currentdir), run_name, model_name)
 
@@ -234,6 +235,7 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
     act_dim = args["act_dim"]
     body_dim = args	["body_dim"]
 
+    position_encoding_length = task_args["position_encoding_length"]
     context_len = task_args["context_len"]      # K in decision transformer
     n_blocks = task_args['n_blocks']            # num of transformer blocks
     embed_dim = task_args['embed_dim']          # embedding (hidden) dim of transformer 
@@ -270,9 +272,9 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
     env_cfg.domain_rand.randomize_com_pos = False
     env_cfg.domain_rand.randomize_motor_strength = False
     env_cfg.sim_device = args["device"]
-    env_cfg.commands.ranges.lin_vel_x = [1, 1]
+    env_cfg.commands.ranges.lin_vel_x = [0.4, 0.4]
     env_cfg.commands.ranges.lin_vel_y = [-0.0, -0.0]
-    env_cfg.commands.ranges.ang_vel_yaw = [-0., -0.]
+    env_cfg.commands.ranges.ang_vel_yaw = [0, 0]
     env, _ = task_registry.make_env(name = env_args.task, args = env_args, env_cfg = env_cfg)
     device = torch.device(env_args.sim_device)
     
@@ -290,10 +292,12 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
             h_dim=embed_dim,
             context_len=context_len,
             n_heads=n_heads,
-            drop_p=dropout_p
+            drop_p=dropout_p,
+            position_encoding_length=position_encoding_length,
             ).to(device)
     model.load_state_dict(torch.load(
-        os.path.join(model_path,"model0.pt"), map_location = args["device"]
+        os.path.join(model_path,"model_best.pt"), map_location = args["device"]
+        # os.path.join(model_path, "model4000epoch.pt"), map_location=args["device"]
     ))
     model.eval()
     #====================================================================================
@@ -355,7 +359,8 @@ def play_withbody(args, faulty_tag = -1, flawed_rate = 1):
             running_body = body_target.expand(eval_batch_size, body_dim).type(torch.float32).clone()
             bodies = body_target.expand(eval_batch_size, max_test_ep_len, body_dim).type(torch.float32).clone()
             
-            change_timing = torch.randint(110,250,(eval_batch_size,))
+            # change_timing = torch.randint(110,250,(eval_batch_size,))
+            change_timing = torch.zeros(eval_batch_size)
             for t in range(max_test_ep_len):
                 if MOVE_CAMERA:
                     lootat = env.root_states[9, :3]
@@ -441,6 +446,7 @@ if __name__ == "__main__":
         args = yaml.safe_load(fargs)
     
     RECORD_FRAMES = False
-    MOVE_CAMERA = False
+    # MOVE_CAMERA = False
+    MOVE_CAMERA = True
     # play(args, 0, 0)
     play_withbody(args, 2, 0)

@@ -618,7 +618,6 @@ def evaluate_on_env_batch_body(
             dones += done.detach()
 
             running_body = step_body(running_body, joints, rate=0.004, threshold=0.0001, upper_bound=0.5)
-
     results["eval/avg_reward"] = torch.mean(total_rewards)
     results["eval/avg_ep_len"] = torch.mean(steps)
 
@@ -725,7 +724,7 @@ class D4RLTrajectoryDataset(Dataset):
             np.mean(states, axis=0),
             np.std(states, axis=0) + 1e-6,
         )
-
+        states = []
         # normalize states
         for traj in self.trajectories:
             traj["observations"] = (
@@ -1101,7 +1100,37 @@ def get_dataset_config(dataset):
         datafile = "New_URDF_Step_More"
         i_magic_list = [f"PPO_AMP_{x}" for x in range(13)]
         eval_body_vec = [1 for _ in range(12)]
+    
+    if dataset == "Small_Damp_Step":
+        datafile = "Small_Damp_Step"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(13)]
+        eval_body_vec = [1 for _ in range(12)]
 
+    if dataset == "No_Damp_Step":
+        datafile = "No_Damp_Step"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(13)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "No_Damp_Step_2":
+        datafile = "No_Damp_Step_2"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(13)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "Small_Damp_New_Reward":
+        datafile = "Small_Damp_New_Reward"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(13)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "Mix_Damp":
+        datafile = "Mix_Damp"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(39)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "Small_Damp_Noise":
+        datafile = "Small_Damp_Noise"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(13)]
+        eval_body_vec = [1 for _ in range(12)]
+    if dataset == "Small_Damp_Noise_No_Push":
+        datafile = "Small_Damp_Noise_No_Push"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(13)]
+        eval_body_vec = [1 for _ in range(12)]
+    
     if dataset == "faulty":
         datafile = "P20F10000-vel0.5-v0"
         i_magic_list = [

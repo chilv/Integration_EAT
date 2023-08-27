@@ -22,7 +22,7 @@ num_updates_per_iter: 100
 seed: 55566
 warmup_steps: 10000
 wt_decay: 0.005
-algorithm_name: EAT_NEW_URDF
+algorithm_name: EAT_Small_Damp
 body_loss_w: 1
 action_loss_w: 1
 pred_body: false

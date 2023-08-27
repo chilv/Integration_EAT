@@ -670,27 +670,29 @@ class MLPBCModel(nn.Module):
                  n_heads, drop_p, max_timestep=4096, state_mean=None, state_std=None, use_rtg=True
     """
 
-    def __init__(self, state_dim, act_dim, n_blocks, h_dim, context_len=1, drop_p=0.1, state_mean=None, state_std=None):
+    def __init__(self, body_dim, state_dim, act_dim, n_blocks, h_dim, context_len=1, drop_p=0.1, state_mean=None, state_std=None):
         super().__init__()
 
         self.hidden_size = h_dim
         self.max_length = context_len
-
+        self.body_dim = body_dim
         self.state_dim = state_dim
         self.act_dim = act_dim
 
-        layers = [nn.Linear(self.max_length*self.state_dim, self.hidden_size)]
+        layers = [nn.Linear(self.max_length*(self.state_dim+self.body_dim), self.hidden_size)]
         for _ in range(n_blocks-1):
             layers.extend([
                 nn.ReLU(),
-                nn.Dropout(drop_p),
+                nn.LayerNorm(self.hidden_size),
+                # nn.Dropout(drop_p),
                 nn.Linear(self.hidden_size, self.hidden_size)
             ])
         layers.extend([
             nn.ReLU(),
-            nn.Dropout(drop_p),
+            nn.LayerNorm(self.hidden_size),
+            # nn.Dropout(drop_p),
             nn.Linear(self.hidden_size, self.act_dim),
-            nn.Tanh(),
+            # nn.Tanh(),
         ])
 
         self.model = nn.Sequential(*layers)
@@ -698,24 +700,30 @@ class MLPBCModel(nn.Module):
         self.state_mean = torch.tensor(state_mean)
         self.state_std = torch.tensor(state_std)
 
-    def forward(self, states):
+    def forward(self, states, actions= None, bodies=None):
 
         states = states[:,-self.max_length:].reshape(states.shape[0], -1).to(dtype=torch.float32)  # concat states
-        actions = self.model(states).reshape(states.shape[0], 1, self.act_dim)
+        bodies = bodies[:,-self.max_length:].reshape(bodies.shape[0], -1).to(dtype=torch.float32)
+
+        actions = self.model(torch.cat((states, bodies), dim=1)).reshape(states.shape[0], -1, self.act_dim)
 
         return None, actions, None
 
-    def get_action(self, states, actions, rewards, **kwargs):
+    def get_action(self, states, bodies, **kwargs):
         states = states.reshape(1, -1, self.state_dim)
         if states.shape[1] < self.max_length:
             states = torch.cat(
                 [torch.zeros((1, self.max_length-states.shape[1], self.state_dim),
                              dtype=torch.float32, device=states.device), states], dim=1)
+            bodies = torch.cat(
+                [torch.zeros((1, self.max_length-bodies.shape[1], self.body_dim),
+                             dtype=torch.float32, device=bodies.device), bodies], dim=1
+            ).to(dtype=torch.float32)
         states = states.to(dtype=torch.float32)
-        _, actions, _ = self.forward(states)
+        _, actions, _ = self.forward(states, None, bodies)
         return actions[0,-1]
 
-    def get_action_batch(self, states):
+    def get_action_batch(self, states, bodies):
         # states = states.reshape(1, -1, self.state_dim)
         if states.shape[1] < self.max_length:
             # states = torch.cat(
@@ -724,9 +732,14 @@ class MLPBCModel(nn.Module):
             states = torch.cat(
                 [torch.zeros((states.shape[0], self.max_length-states.shape[1], self.state_dim), 
                              dtype=torch.float32, device=states.device), states], dim=1)
+            bodies = torch.cat(
+                [torch.zeros((bodies.shape[0], self.max_length-bodies.shape[1], self.body_dim),
+                             dtype=torch.float32, device=bodies.device), bodies], dim=1
+            ).to(dtype=torch.float32)
         states = states.to(dtype=torch.float32)
-        _, actions, _ = self.forward(states)
+        _, actions, _ = self.forward(states, None, bodies)
         return actions[:,-1]
+    
 
 class Model_Prediction(nn.Module):
     def __init__(self, state_dim, body_dim, context_len=100, n_blocks=3, h_dim=128, 

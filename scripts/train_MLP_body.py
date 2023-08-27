@@ -20,7 +20,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from utils import D4RLTrajectoryDataset,D4RLTrajectoryDatasetForTert, evaluate_on_env_batch_body, get_dataset_config, partial_traj #, get_d4rl_normalized_score,
-from model import LeggedTransformerBody, LeggedTransformerPro, LeggedTransformerBody_Global_Steps
+from model import MLPBCModel
 import wandb
 from legged_gym.utils import task_registry, Logger 
 from tqdm import trange, tqdm
@@ -193,19 +193,17 @@ def train(args):
     #         ).to(device)
     # else:
     # Local_Context_Len Positional Encoding 
-    model = LeggedTransformerBody(
-            body_dim=body_dim,
-            state_dim=state_dim,
-            act_dim=act_dim,
-            n_blocks=n_blocks,
-            h_dim=embed_dim,
-            context_len=context_len,
-            n_heads=n_heads,
-            drop_p=dropout_p,
-            state_mean=state_mean,
-            state_std=state_std,
-            position_encoding_length=position_encoding_length,
-        ).to(device)
+    model = MLPBCModel(
+        body_dim=body_dim,
+        state_dim=state_dim,
+        act_dim=act_dim,
+        n_blocks=n_blocks,
+        h_dim=embed_dim*4,
+        context_len=1,
+        drop_p = 0,
+        state_mean=state_mean,
+        state_std=state_std,
+    ).to(device)
     
     if args["model_dir"] is not None:
         model.load_state_dict(torch.load(
@@ -256,51 +254,9 @@ def train(args):
             traj_mask = traj_mask.to(device)    # B x T
             action_target = torch.clone(actions).detach().to(device)
 
-            if pred_body:
-                # body_1 = torch.ones_like(actions)   #body full of 1.0
-                
-                _, _, body_preds = model.forward(
-                                                                states=states,
-                                                                actions=actions,
-                                                                bodies = bodies
-                                                                # body=body
-                                                            )
-                
-                # mesure body loss
-                # 预测的body是当前body
-                body_preds = body_preds.clamp(0.0, 1.0)
-                # only consider non padded elements
-                target_joints = torch.argmin(gt_bodies, dim=-1).unsqueeze(2)
-
-                #仅保留主要loss
-                body_main_loss = F.mse_loss(
-                    body_preds.gather(
-                        dim=2,index = target_joints), 
-                    body_target.gather(
-                        dim=2,index = target_joints), 
-                    reduction='mean')
-                
-                #adversary loss
-                _, idx1 = torch.sort(torch.abs(body_preds.detach()-body_target), dim=-1, descending=False)
-                p = (idx1!=target_joints.expand(-1,-1,12)).nonzero()[:,-1].reshape((B,T,D-1)) #非最小元素的所有坐标
-                p = p[:,:,:2]
-                #按理说应该要body_adversary尽可能远离body_target
-                # 但由于目前的setting主要是从1下降到任意坏损值，所以偷懒写成body_adversary离1的距离越近越好
-                body_adversary_loss = torch.exp(
-                    (body_preds.gather(dim=2,index = p) 
-                    - body_target.gather(dim=2,index = target_joints).expand(-1,-1,2)).mean()
-                )
-                
-                body_preds = body_preds.view(-1, body_dim)[traj_mask.view(-1,) > 0]
-                body_target = body_target.view(-1, body_dim)[traj_mask.view(-1,) > 0]
-                body_loss = body_main_loss + body_adversary_loss 
-                + F.mse_loss(body_preds, body_target, reduction='mean')
-            
             #measure action loss
             _, action_preds, _ = model.forward(
-                                                            states=states,
-                                                            actions=actions,
-                                                            # body = body_1
+                                                            states=states,                                                            # body = body_1
                                                             bodies=bodies
                                                         )
             action_preds = action_preds.view(-1, act_dim)[traj_mask.view(-1,) > 0]
@@ -308,8 +264,6 @@ def train(args):
             action_loss = F.mse_loss(action_preds, action_target, reduction='mean')
 
             total_loss = args["action_loss_w"] * action_loss
-            if pred_body:
-                total_loss += (args["body_loss_w"] * body_loss)
             total_loss = total_loss.to(torch.float)
 
             optimizer.zero_grad()
@@ -317,20 +271,10 @@ def train(args):
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
             optimizer.step()
             scheduler.step()
-
-            if pred_body:
-                log_body_losses.append(body_loss.detach().cpu().item())
             log_action_losses.append(action_loss.detach().cpu().item())
 
             if not args["wandboff"]:
-                if pred_body:
-                    wandb.log({"Loss_body": body_loss.detach().cpu().item(), 
-                           "Loss_body_main": body_main_loss.detach().cpu().item(),
-                           "Loss_body_adv": body_adversary_loss.detach().cpu().item(),
-                           "Loss_action": action_loss.detach().cpu().item(),
-                           })
-                else:
-                    wandb.log({"Loss_action": action_loss.detach().cpu().item()})
+                wandb.log({"Loss_action": action_loss.detach().cpu().item()})
 
             total_updates += num_updates_per_iter
 
@@ -377,23 +321,23 @@ def train(args):
                 tqdm.write("saving max score model at: " + save_model_path+"_best.pt(.jit)")
                 tqdm.write("max score: " + format(max_d4rl_score, ".5f"))
                 torch.save(model.state_dict(), save_model_path+"_best.pt")
-                traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
-                traced_script_module.save(save_model_path+"_best.jit")
+                # traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
+                # traced_script_module.save(save_model_path+"_best.jit")
                 max_d4rl_score = eval_avg_reward
         #end one eval & log
         #========================================================================
 
         if epoch % 100 == 0:
             torch.save(model.state_dict(), save_model_path+str(epoch)+"epoch.pt")
-            traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
-            traced_script_module.save(save_model_path+str(epoch)+"epoch.jit")
+            # traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
+            # traced_script_module.save(save_model_path+str(epoch)+"epoch.jit")
 
         # tqdm.write("saving current model at: " + save_model_path+".pt(.jit)") 
         # print("saving current model at: " + save_model_path+".pt(.jit)")
         # if total_updates % 10 == 0:
         torch.save(model.state_dict(), save_model_path+str(epoch%10)+".pt")
-        traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
-        traced_script_module.save(save_model_path+str(epoch%10)+".jit")
+        # traced_script_module = torch.jit.script(copy.deepcopy(model).to('cpu'))
+        # traced_script_module.save(save_model_path+str(epoch%10)+".jit")
     #end training
     #=======================================================================================
 
