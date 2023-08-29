@@ -304,7 +304,7 @@ class LeggedTransformer(nn.Module):
 
 class LeggedTransformerDistill(nn.Module):
     def __init__(self, state_dim, act_dim, n_blocks, h_dim, context_len,
-                 n_heads, drop_p, max_timestep=4096, state_mean=None, state_std=None):
+                 n_heads, drop_p, max_timestep=4096, state_mean=None, state_std=None, position_encoding_length=4096):
         super().__init__()
 
         self.state_dim = state_dim
@@ -319,7 +319,7 @@ class LeggedTransformerDistill(nn.Module):
 
         ### projection heads (project to embedding)
         self.embed_ln = nn.LayerNorm(h_dim)
-        self.embed_timestep = nn.Embedding(max_timestep, h_dim)
+        self.positional_encoding = Positional_Encoding(h_dim, position_encoding_length)
         # self.embed_rtg = torch.nn.Linear(1, h_dim)
         self.embed_state = torch.nn.Linear(state_dim, h_dim)
 
@@ -342,15 +342,14 @@ class LeggedTransformerDistill(nn.Module):
         self.state_std = torch.tensor(state_std)
 
 
-    def forward(self, timesteps, states, actions):
+    def forward(self, states, actions, bodies= None):
 
         B, T, _ = states.shape
 
-        time_embeddings = self.embed_timestep(timesteps)
 
         # time embeddings are treated similar to positional embeddings
-        state_embeddings = self.embed_state(states) + time_embeddings
-        action_embeddings = self.embed_action(actions) + time_embeddings
+        state_embeddings = self.positional_encoding(self.embed_state(states))
+        action_embeddings = self.positional_encoding(self.embed_action(actions))
         # returns_embeddings = self.embed_rtg(leg_length) + time_embeddings
 
         # stack states, body and actions and reshape sequence as
@@ -380,7 +379,7 @@ class LeggedTransformerDistill(nn.Module):
         state_preds = self.predict_state(h[:,1])    # predict next state given s, b, a
         action_preds = self.predict_action(h[:,0])  # predict action given r, s
         
-        return state_preds, action_preds
+        return state_preds, action_preds, None
 
 class LeggedTransformerPro(nn.Module):
     def __init__(self, body_dim, state_dim, act_dim, n_blocks, h_dim, context_len,
@@ -740,6 +739,78 @@ class MLPBCModel(nn.Module):
         _, actions, _ = self.forward(states, None, bodies)
         return actions[:,-1]
     
+
+    
+class MLPBCModel_Distill(nn.Module):
+    
+    """
+    Simple MLP that predicts next action a from past states s.
+
+    self, state_dim, act_dim, n_blocks, h_dim, context_len,
+                 n_heads, drop_p, max_timestep=4096, state_mean=None, state_std=None, use_rtg=True
+    """
+
+    def __init__(self, state_dim, act_dim, n_blocks, h_dim, context_len=1, drop_p=0.1, state_mean=None, state_std=None):
+        super().__init__()
+
+        self.hidden_size = h_dim
+        self.max_length = context_len
+        self.state_dim = state_dim
+        self.act_dim = act_dim
+
+        layers = [nn.Linear(self.max_length*(self.state_dim), self.hidden_size)]
+        for _ in range(n_blocks-1):
+            layers.extend([
+                nn.ReLU(),
+                nn.LayerNorm(self.hidden_size),
+                # nn.Dropout(drop_p),
+                nn.Linear(self.hidden_size, self.hidden_size)
+            ])
+        layers.extend([
+            nn.ReLU(),
+            nn.LayerNorm(self.hidden_size),
+            # nn.Dropout(drop_p),
+            nn.Linear(self.hidden_size, self.act_dim),
+            # nn.Tanh(),
+        ])
+
+        self.model = nn.Sequential(*layers)
+
+        self.state_mean = torch.tensor(state_mean)
+        self.state_std = torch.tensor(state_std)
+
+    def forward(self, states, actions= None, bodies=None):
+
+        states = states[:,-self.max_length:].reshape(states.shape[0], -1).to(dtype=torch.float32)  # concat states
+
+        actions = self.model(states).reshape(states.shape[0], -1, self.act_dim)
+
+        return None, actions, None
+
+    def get_action(self, states, **kwargs):
+        states = states.reshape(1, -1, self.state_dim)
+        if states.shape[1] < self.max_length:
+            states = torch.cat(
+                [torch.zeros((1, self.max_length-states.shape[1], self.state_dim),
+                             dtype=torch.float32, device=states.device), states], dim=1)
+        states = states.to(dtype=torch.float32)
+        _, actions, _ = self.forward(states, None, None)
+        return actions[0,-1]
+
+    def get_action_batch(self, states):
+        # states = states.reshape(1, -1, self.state_dim)
+        if states.shape[1] < self.max_length:
+            # states = torch.cat(
+            #     [torch.zeros((1, self.max_length-states.shape[1], self.state_dim),
+            #                  dtype=torch.float32, device=states.device), states], dim=1)
+            states = torch.cat(
+                [torch.zeros((states.shape[0], self.max_length-states.shape[1], self.state_dim), 
+                             dtype=torch.float32, device=states.device), states], dim=1)
+        states = states.to(dtype=torch.float32)
+        _, actions, _ = self.forward(states, None, None)
+        return actions[:,-1]
+    
+
 
 class Model_Prediction(nn.Module):
     def __init__(self, state_dim, body_dim, context_len=100, n_blocks=3, h_dim=128, 

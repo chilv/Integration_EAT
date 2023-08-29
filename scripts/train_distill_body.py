@@ -20,7 +20,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from utils import D4RLTrajectoryDataset,D4RLTrajectoryDatasetForTert, evaluate_on_env_batch_body, get_dataset_config, partial_traj #, get_d4rl_normalized_score,
-from model import MLPBCModel
+from model import LeggedTransformerDistill
 import wandb
 from legged_gym.utils import task_registry, Logger 
 from tqdm import trange, tqdm
@@ -43,7 +43,7 @@ def train(args):
     wt_decay = args["wt_decay"]                # weight decay
     warmup_steps = args["warmup_steps"]        # warmup steps for lr scheduler
 
-    context_len = 1     # K in decision transformer
+    context_len = args["context_len"]      # K in decision transformer
     n_blocks = args["n_blocks"]            # num of transformer blocks
     embed_dim = args["embed_dim"]          # embedding (hidden) dim of transformer
     n_heads = args["n_heads"]              # num of transformer heads
@@ -193,17 +193,18 @@ def train(args):
     #         ).to(device)
     # else:
     # Local_Context_Len Positional Encoding 
-    model = MLPBCModel(
-        body_dim=body_dim,
-        state_dim=state_dim,
-        act_dim=act_dim,
-        n_blocks=n_blocks,
-        h_dim=embed_dim*4,
-        context_len=1,
-        drop_p = 0,
-        state_mean=state_mean,
-        state_std=state_std,
-    ).to(device)
+    model = LeggedTransformerDistill(
+            state_dim=state_dim,
+            act_dim=act_dim,
+            n_blocks=n_blocks,
+            h_dim=embed_dim,
+            context_len=context_len,
+            n_heads=n_heads,
+            drop_p=dropout_p,
+            state_mean=state_mean,
+            state_std=state_std,
+            position_encoding_length=position_encoding_length,
+        ).to(device)
     
     if args["model_dir"] is not None:
         model.load_state_dict(torch.load(
@@ -253,11 +254,11 @@ def train(args):
             body_target = torch.clone(gt_bodies).detach().to(device)
             traj_mask = traj_mask.to(device)    # B x T
             action_target = torch.clone(actions).detach().to(device)
-
             #measure action loss
             _, action_preds, _ = model.forward(
-                                                            states=states,                                                            # body = body_1
-                                                            bodies=bodies
+                                                            states=states,
+                                                            actions=actions
+                                                            # body = body_1
                                                         )
             action_preds = action_preds.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             action_target = action_target.view(-1, act_dim)[traj_mask.view(-1,) > 0]
@@ -271,6 +272,7 @@ def train(args):
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
             optimizer.step()
             scheduler.step()
+
             log_action_losses.append(action_loss.detach().cpu().item())
 
             if not args["wandboff"]:

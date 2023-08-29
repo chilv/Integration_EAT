@@ -1,11 +1,11 @@
 #试图将所有args统一到yaml格式
 # alg: 
 batch_size: 512
-context_len: 1
+context_len: 20
 cut: 0
-dataset: Small_Damp_Noise_No_Push #Mix_Damp #AMP_PPO_no_liny #AMP_PPO_no_liny #AMP_PPO #IPPO8 #IPPOtest #IPPO8
+dataset: Small_Damp_Noise_No_Push_2 #Mix_Damp #AMP_PPO_no_liny #AMP_PPO_no_liny #AMP_PPO #IPPO8 #IPPOtest #IPPO8
 dataset_dir: Integration_EAT/data/
-device: cuda:2
+device: cuda:1
 dropout_p: 0.1
 embed_dim: 128
 log_dir: Integration_EAT/EAT_runs_AMP/
@@ -23,15 +23,15 @@ num_updates_per_iter: 100
 seed: 88
 warmup_steps: 10000
 wt_decay: 0.005
-algorithm_name: MLP_Small_Damp
+algorithm_name: MLP_Distill_Small_Damp
 body_loss_w: 1
 action_loss_w: 1
 pred_body: false
 
 # env:
-compute_device_id: 2
+compute_device_id: 1
 flex: false
-graphics_device_id: 2
+graphics_device_id: 1
 headless: false
 orovod: false
 joint:
@@ -47,8 +47,8 @@ physx: false
 pipeline: gpu
 rate: -1
 resume: false
-sim_device: cuda:2
-sim_device_id: 2
+sim_device: cuda:1
+sim_device_id: 1
 sim_device_type: cuda
 slices: 0
 subscenes: 0

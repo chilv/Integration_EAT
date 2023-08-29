@@ -18,7 +18,7 @@ import yaml
 from legged_gym.envs import *
 from legged_gym.utils import (Logger, export_policy_as_jit, get_args,
                               task_registry)
-from model import LeggedTransformerBody, LeggedTransformerPro
+from model import MLPBCModel
 from scripts.utils import flaw_generation
 
 import isaacgym
@@ -34,79 +34,6 @@ for i in ["F", "B"]:
 
 ENV_NUMS = 4096  #测试环境数
 
-def test_ppo(args, env, train_cfg, faulty_tag = -1, flawed_rate = 1):
-    """在单次循环中
-
-    Args:
-        args (_type_): 就各种参数
-        env ( optional): 用来测试的环境
-        train_cfg ( optional): 用来训练脚本
-        faulty_tag (int, optional): 坏的关节 -1为全好. Defaults to -1.
-        flawed_rate (int, optional): 坏的成都  1为完好. Defaults to 1.
-    """
-    
-    obs = env.reset()[0]
-    # obs = env.get_observations()
-    # load policy
-    train_cfg.runner.resume = True
-    # train_cfg.runner.load_run = "strange"
-    # if faulty_tag == -1:
-    #     train_cfg.runner.load_run = f""
-    # else:
-    #     train_cfg.runner.load_run = f"{faulty_tag}"
-    train_cfg.runner.experiment = "Models"
-    train_cfg.runner.load_run = "PPO_Models"
-    train_cfg.runner.checkpoint = faulty_tag
-    log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
-    #判断模型文件是否存在 若不存在则报错弹出
-    # if not os.path.exists(os.path.join(log_root,train_cfg.runner.load_run)):
-    #     print(f"no model file{faulty_tag}_{flawed_rate}")
-    #     return -1 , 0
-
-    # train_cfg.runner.checkpoint = -1    #! 改成best
-    ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
-    policy = ppo_runner.get_inference_policy(device=env.device)
-
-    logger = Logger(env.dt)
-    robot_index = 0 # which robot is used for logging
-    joint_index = 1 # which joint is used for logging
-    stop_state_log = 100 # number of steps before plotting states
-    stop_rew_log = env.max_episode_length # number of steps before print average episode rewards
-    camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
-    camera_vel = np.array([1., 1., 0.])
-    camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
-    img_idx = 0
-    cur_reward_sum = torch.zeros(env_cfg.env.num_envs, dtype=torch.float, device=args.sim_device)
-    rewbuffer = deque(maxlen=100)
-    cur_episode_length = torch.zeros(env_cfg.env.num_envs, dtype=torch.float, device=args.sim_device)
-    lengthbuffer = deque(maxlen=100)
-    
-    # body, _ = flaw_generation(env.num_envs, bodydim=12, fixed_joint=[faulty_tag], flawed_rate=flawed_rate, device=env.device)
-    body = torch.ones((env.num_envs, 12), dtype=torch.float, device = args.sim_device)
-
-    for i in range(int(env.max_episode_length) + 1):
-        actions = policy(obs.detach(), body)
-        obs, _, rews, dones, infos = env.step(actions.detach(), body)
-        
-        cur_reward_sum += rews
-        new_ids = (dones > 0).nonzero(as_tuple=False)
-        rewbuffer.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
-        cur_reward_sum[new_ids] = 0
-        cur_episode_length += torch.ones(env_cfg.env.num_envs,dtype=torch.float, device=args.sim_device)
-        lengthbuffer.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
-        cur_episode_length[new_ids] = 0
-
-        if  0 < i < stop_rew_log:
-            if infos["episode"]:
-                num_episodes = torch.sum(env.reset_buf).item()
-                if num_episodes>0:
-                    logger.log_rewards(infos["episode"], num_episodes)
-        elif i % stop_rew_log == 0 and i != 0:
-            logger.print_rewards()
-            if len(rewbuffer)>0:
-                print(f"average reward is :{statistics.mean(rewbuffer)}\naverage length is :{statistics.mean(lengthbuffer)}\n")
-    return statistics.mean(rewbuffer), statistics.mean(lengthbuffer)
-            
 def test_EAT(args, env, EAT_model, faulty_tag = -1, flawed_rate = 1, pred_body = True):
     # loading EAT model
     eval_batch_size = ENV_NUMS        # 测试环境数
@@ -150,15 +77,14 @@ def test_EAT(args, env, EAT_model, faulty_tag = -1, flawed_rate = 1, pred_body =
 
             if t < context_len:
                 _, act_preds, _ = EAT_model.forward(
-                                            states[:,:context_len],
-                                            actions[:,:context_len],
-                                            bodies=bodies[:,:context_len])
+                                            states=states[:,:context_len],
+                                            bodies=bodies[:,:context_len],
+                                        )
                 act = act_preds[:, t].detach()
             else:
                 _, act_preds, _ = EAT_model.forward(
-                                        states[:,t-context_len+1:t+1],
-                                        actions[:,t-context_len+1:t+1],
-                                        bodies=bodies[:,t-context_len+1:t+1])
+                                        states=states[:,t-context_len+1:t+1],
+                                        bodies=bodies[:,t-context_len+1:t+1]) 
                 act = act_preds[:, -1].detach()
             
             # body, _ = flaw_generation(ENV_NUMS, fixed_joint = [faulty_tag], flawed_rate = flawed_rate, device = )
@@ -249,7 +175,7 @@ if __name__ == '__main__':
     #测试EAT======================================================================
     #loading EAT model
     # loading pre_record stds,means...
-    model_name = "EAT_Small_Damp_SMALLDAMPNOISENOPUSH2_00"
+    model_name = "MLP_Small_Damp_SMALLDAMPNOISENOPUSH2_01"
     run_name = "EAT_runs_AMP"
     model_path = os.path.join(os.path.dirname(parentdir), run_name, model_name)
     task_args = {}
@@ -264,7 +190,7 @@ if __name__ == '__main__':
     act_dim = args["act_dim"]
     body_dim = args	["body_dim"]
 
-    context_len = task_args["context_len"]      # K in decision transformer
+    context_len = 1     # K in decision transformer
     n_blocks = task_args['n_blocks']            # num of transformer blocks
     embed_dim = task_args['embed_dim']          # embedding (hidden) dim of transformer 
     n_heads = task_args['n_heads']              # num of transformer heads
@@ -272,18 +198,16 @@ if __name__ == '__main__':
     position_encoding_length = task_args['position_encoding_length']
     device = torch.device(env_args.sim_device)
     pred_body = task_args.get('pred_body', True)
-    EAT_model = LeggedTransformerBody(
-            body_dim=body_dim,
+    EAT_model = MLPBCModel(
+			body_dim=body_dim,
             state_dim=state_dim,
             act_dim=act_dim,
             n_blocks=n_blocks,
-            h_dim=embed_dim,
-            context_len=context_len,
-            n_heads=n_heads,
-            drop_p=dropout_p,
+            h_dim=embed_dim*4,
+            context_len=1,
+            drop_p=0,
             state_mean=args['state_mean'], 
             state_std=args['state_std'],
-            position_encoding_length=position_encoding_length
             ).to(device)
     EAT_model.load_state_dict(torch.load(
         os.path.join(model_path,"model_best.pt")

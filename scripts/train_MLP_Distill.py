@@ -20,7 +20,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from utils import D4RLTrajectoryDataset,D4RLTrajectoryDatasetForTert, evaluate_on_env_batch_body, get_dataset_config, partial_traj #, get_d4rl_normalized_score,
-from model import MLPBCModel
+from model import MLPBCModel_Distill
 import wandb
 from legged_gym.utils import task_registry, Logger 
 from tqdm import trange, tqdm
@@ -193,8 +193,7 @@ def train(args):
     #         ).to(device)
     # else:
     # Local_Context_Len Positional Encoding 
-    model = MLPBCModel(
-        body_dim=body_dim,
+    model = MLPBCModel_Distill(
         state_dim=state_dim,
         act_dim=act_dim,
         n_blocks=n_blocks,
@@ -238,7 +237,7 @@ def train(args):
     for epoch in trange(n_epochs):
         # pdb.set_trace()
         log_action_losses = []
-        log_body_losses = []
+        # log_body_losses = []
         model.train()
 
         for states, actions, bodies, gt_bodies, traj_mask in iter(traj_data_loader):
@@ -247,18 +246,17 @@ def train(args):
             states = states.to(device)          # B x T x state_dim
 
             actions = actions.to(device)        # B x T x act_dim
-            bodies = bodies.to(device)  # B x T x body_dim
-            B, T, D = bodies.shape
-            gt_bodies = gt_bodies.to(device)  # B x T x body_dim
-            body_target = torch.clone(gt_bodies).detach().to(device)
+            # bodies = bodies.to(device)  # B x T x body_dim
+            # B, T, D = bodies.shape
+            # gt_bodies = gt_bodies.to(device)  # B x T x body_dim
+            # body_target = torch.clone(gt_bodies).detach().to(device)
             traj_mask = traj_mask.to(device)    # B x T
             action_target = torch.clone(actions).detach().to(device)
 
             #measure action loss
             _, action_preds, _ = model.forward(
-                                                            states=states,                                                            # body = body_1
-                                                            bodies=bodies
-                                                        )
+												states=states,                                                         
+											)
             action_preds = action_preds.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             action_target = action_target.view(-1, act_dim)[traj_mask.view(-1,) > 0]
             action_loss = F.mse_loss(action_preds, action_target, reduction='mean')
@@ -294,7 +292,7 @@ def train(args):
             eval_avg_reward = results['eval/avg_reward']
             eval_avg_ep_len = results['eval/avg_ep_len']
             
-            mean_body_loss = np.mean(log_body_losses)
+            # mean_body_loss = np.mean(log_body_losses)
             mean_action_loss = np.mean(log_action_losses)
             time_elapsed = str(datetime.now().replace(microsecond=0) - start_time)
 
@@ -302,7 +300,7 @@ def train(args):
                     "time elapsed: " + time_elapsed  + '\n' +
                     "num of updates: " + str(total_updates) + '\n' +
                     "action loss: " +  format(mean_action_loss, ".5f") + '\n' +
-                    "body loss: " +  format(mean_body_loss, ".5f") + '\n' +
+                    # "body loss: " +  format(mean_body_loss, ".5f") + '\n' +
                     "eval avg reward: " + format(eval_avg_reward, ".5f") + '\n' +
                     "eval avg ep len: " + format(eval_avg_ep_len, ".5f") #+ 
                 )
@@ -311,7 +309,7 @@ def train(args):
             if not args["wandboff"]:
                 wandb.log({"Evaluation Score": eval_avg_reward, "Episode Length": eval_avg_ep_len, "Total Steps": total_updates})
             
-            log_data = [time_elapsed, total_updates, mean_body_loss, mean_action_loss,
+            log_data = [time_elapsed, total_updates, mean_action_loss,
                         eval_avg_reward, eval_avg_ep_len]
 
             csv_writer.writerow(log_data)

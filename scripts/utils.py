@@ -1130,6 +1130,10 @@ def get_dataset_config(dataset):
         datafile = "Small_Damp_Noise_No_Push"
         i_magic_list = [f"PPO_AMP_{x}" for x in range(13)]
         eval_body_vec = [1 for _ in range(12)]
+    if dataset == "Small_Damp_Noise_No_Push_2":
+        datafile = "Small_Damp_Noise_No_Push_2"
+        i_magic_list = [f"PPO_AMP_{x}" for x in range(13)]
+        eval_body_vec = [1 for _ in range(12)]
     
     if dataset == "faulty":
         datafile = "P20F10000-vel0.5-v0"
