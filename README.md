@@ -85,7 +85,11 @@ The base environment `legged_robot` implements a rough terrain locomotion task. 
     sensor_tensor = self.gym.acquire_force_sensor_tensor(self.sim)
     self.gym.refresh_force_sensor_tensor(self.sim)
     force_sensor_readings = gymtorch.wrap_tensor(sensor_tensor)
-    self.sensor_forces = force_sensor_readings.view(self.num_envs, 4, 6)[..., :3]
+    self.sensor_forces = force_sen
+
+https://github.com/chilv/Integration_EAT/assets/36011596/a0ac58de-9c7d-48eb-963c-b4b5898c1b87
+
+sor_readings.view(self.num_envs, 4, 6)[..., :3]
     (...)
 
     self.gym.refresh_force_sensor_tensor(self.sim)
