@@ -9,6 +9,14 @@ It includes all components needed for sim-to-real transfer: actuator network, fr
 Project website: https://leggedrobotics.github.io/legged_gym/
 Paper: https://arxiv.org/abs/2109.11978
 
+
+https://github.com/chilv/Integration_EAT/assets/36011596/e8e33c74-36c6-475c-8c75-de7da6900c82
+
+
+https://github.com/chilv/Integration_EAT/assets/36011596/2bbefa5a-8e1d-4649-8a38-10122135ff24
+
+
+
 ### Installation ###
 1. Create a new python virtual env with python 3.6, 3.7 or 3.8 (3.8 recommended)
 2. Install pytorch 1.10 with cuda-11.3:
